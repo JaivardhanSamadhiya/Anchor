@@ -88,6 +88,8 @@ let state,
   importError = '',
   storageFailed = false;
 let account, guide, accountTransport;
+let clarificationRenderDeferred = false;
+let pointerDown = false;
 // Timebox changes are reversible planning preferences, never notice facts.
 let continuityCapacity = 30;
 let accountInfo = { authenticated: false, configured: false, syncState: 'guest', pendingCount: 0 };
@@ -627,6 +629,21 @@ function about() {
   );
 }
 function render() {
+  // A storage/status update must not replace a clarification mid-edit. Keep
+  // the existing input and its draft/caret until blur commits it. Navigating
+  // or restoring another workspace clears selected, so this cannot retain an
+  // editor across account or notice boundaries.
+  const clarification = $('#clarification');
+  if (
+    clarification &&
+    page === 'notices' &&
+    selected === clarification.dataset.clarify &&
+    (document.activeElement === clarification || pointerDown)
+  ) {
+    clarificationRenderDeferred = true;
+    return;
+  }
+  clarificationRenderDeferred = false;
   const focusTarget = captureFocus();
   document.documentElement.lang = state.lang;
   const content =
@@ -652,7 +669,11 @@ function render() {
                 : about();
   app.innerHTML = shell(content);
   guide?.refresh();
-  if (focusTarget) requestAnimationFrame(() => $(focusTarget)?.focus({ preventScroll: true }));
+  if (focusTarget)
+    requestAnimationFrame(() => {
+      // Do not steal focus if the resident already moved to another control.
+      if (document.activeElement === document.body) $(focusTarget)?.focus({ preventScroll: true });
+    });
   if (highlightLine && selected)
     requestAnimationFrame(() =>
       $(`#line-${highlightLine}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
@@ -1166,6 +1187,25 @@ async function handleClick(ev) {
     );
   }
 }
+function flushClarificationRender() {
+  if (clarificationRenderDeferred) render();
+}
+document.addEventListener('pointerdown', () => {
+  pointerDown = true;
+});
+for (const event of ['pointerup', 'pointercancel'])
+  document.addEventListener(event, () => {
+    pointerDown = false;
+    requestAnimationFrame(flushClarificationRender);
+  });
+document.addEventListener('focusout', (ev) => {
+  const noticeId = ev.target.dataset.clarify;
+  if (noticeId && clarificationRenderDeferred)
+    requestAnimationFrame(() => {
+      // A held pointer must keep its pressed control until release/click.
+      if (page === 'notices' && selected === noticeId) flushClarificationRender();
+    });
+});
 document.addEventListener('change', async (ev) => {
   const el = ev.target;
   if (el.id === 'language') {
