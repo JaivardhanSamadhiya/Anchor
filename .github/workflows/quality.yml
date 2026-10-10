@@ -1,0 +1,46 @@
+name: Verify Anchor
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run check
+      - run: npm run format:check
+      - run: npm run build
+      - name: Install real browser and system libraries
+        run: npx playwright install --with-deps chromium
+      - name: Test account, document, and repository-path browser behavior
+        run: |
+          node server.mjs > /tmp/anchor-preview.log 2>&1 &
+          ANCHOR_SERVER_PID=$!
+          trap 'kill "$ANCHOR_SERVER_PID"' EXIT
+          node --input-type=module -e 'for (let attempt = 0; attempt < 30; attempt++) { try { const response = await fetch(process.env.ANCHOR_BROWSER_TEST_URL); if (response.ok) process.exit(0); } catch {} await new Promise(resolve => setTimeout(resolve, 250)); } process.exit(1);'
+          npm test
+        env:
+          ANCHOR_PORT: '4317'
+          ANCHOR_SERVE_ROOT: dist/pages
+          ANCHOR_BASE_PATH: /Anchor/
+          ANCHOR_BROWSER_TEST_URL: http://127.0.0.1:4317/Anchor/
+          ANCHOR_PLAYWRIGHT_MODULE: file://${{ github.workspace }}/node_modules/playwright/index.mjs
+      - name: Test audit failure cases
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Audit deployable artifact
+        run: python scripts/audit_sources.py --site dist/pages

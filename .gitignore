@@ -6,4 +6,11 @@ qa/
 .dev.vars*
 !.env.example
 *.tar.gz
-test-results.log
+*.log
+
+# Canonical TypeScript lives in src/. These are browser build outputs.
+web/continuity.js*
+web/continuity-view.js*
+web/supabase-transport.js*
+web/config.js*
+__pycache__/

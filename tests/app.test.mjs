@@ -74,7 +74,7 @@ test('browser acceptance: source review, preparation, receipts, handoff, calenda
     assert.equal(await page.locator('.sample-strip').count(),0);
     assert.equal(await page.locator('.source-paper img').count(),0);
     assert.equal(await page.evaluate(()=>window.injected),undefined);
-    const stored=await page.evaluate(async()=>{const api=await import('/platform.js');return api.loadState();});
+    const stored=await page.evaluate(async()=>{const api=await import(new URL('platform.js', location.href).href);return api.loadState();});
     assert.equal(stored.mode,'personal');
     assert.equal(stored.personal.notices.length,1);
     assert.equal(stored.personal.notices[0].isDemo,false);

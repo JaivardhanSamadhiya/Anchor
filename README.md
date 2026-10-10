@@ -1,49 +1,74 @@
 # Anchor
 
-Anchor turns benefit notices into checked dates, a practical preparation plan, and submission records. It includes fictional practice notices, local PDF/OCR, English/Spanish navigation, an interactive guide, and optional Google accounts with private saved work.
+Anchor helps people keep benefit paperwork from becoming a gap in support. It reads a notice on the device, shows the source behind each request and date, and follows the work from review through preparation, submission, saved confirmation, and a resident-recorded agency response.
 
-This is the standalone Cloudflare edition: no Sites/ChatGPT hosting account is required. Guests save on their device. Signed-in users sync personal work to D1 and referenced documents to private R2 storage.
+[Open Anchor](https://jaivardhansamadhiya.github.io/Anchor/) · [Hosting and account setup](docs/PAGES_SETUP.md) · [Architecture](docs/ARCHITECTURE.md) · [Continuity design](docs/CONTINUITY.md)
 
-## Deploy from GitHub
+## What it does
 
-1. Enable R2 in your Cloudflare account. Review its free allowances and usage billing.
-2. In Workers & Pages create a **Worker**, connect this repository, and select branch **main**. Use Worker name **anchor**, matching wrangler.jsonc.
-3. Set the root directory to the repository root, **Build command** to `npm run build`, **Deploy command** to `npm run deploy`, and **Node version** to `24`.
-4. Wrangler automatically provisions the DB and BUCKET bindings. The deploy script then applies the database migrations. Its deployment token needs Workers, D1, and R2 edit permissions. If provisioning is denied, authorize those permissions or create the resources manually and put their database ID/bucket name in wrangler.jsonc.
-5. Wait for the full deployment including migrations to succeed. On the initial deployment account APIs are not ready until migration finishes. Keep the R2 bucket private and leave non-production branch deployments disabled initially.
-6. Open the workers.dev URL shown by Cloudflare and follow [Google setup](docs/GOOGLE_SETUP.md).
+- Reads English CalFresh renewal/verification notices from text, PDF, or photos with local PDF/OCR engines. Unclear dates and unsupported forms require human review.
+- Keeps competing dates and multiple notices visible, instead of silently choosing a deadline.
+- Builds a dependency graph of the review, preparation, submission, proof, and follow-up stages. An explainable priority queue shows which actions are ready and why others are blocked.
+- Compares reversible 15-, 30-, and 60-minute planning sessions with leaving the workspace unchanged. The estimates are planning allowances, not promises about completion or benefit eligibility.
+- Suggests exact-wording evidence matches between compatible notices, but requires the user to check the person, period, and original instructions. A link never marks the target prepared or submitted.
+- Keeps submission and agency-response records separate. Recording a response does not imply an agency approved benefits.
+- Saves guest work locally. Optional Google accounts sync personal work and private documents through Supabase; practice activity remains separate.
+- Includes English/Spanish navigation, a seven-step walkthrough, source-linked official resources, calendar export, handoffs, and prepared offline readers.
 
-Use **Workers**, rather than a static Pages upload, because account saving needs the API. Future main-branch pushes rebuild and deploy automatically. If anchor-db or anchor-documents already belong to another project, choose distinct names before deploying. The dashboard Worker name must match the configuration.
+## GitHub Pages and Supabase
 
-## Local development
+The website is deployed by `.github/workflows/pages.yml`. Enable **Settings → Pages → Source: GitHub Actions**. Main-branch pushes build a static artifact in `dist/pages` and publish it. No Cloudflare account is required.
 
-Use Node.js 24:
+To activate accounts, create a Supabase project, run `supabase/migrations/202610100001_anchor_accounts.sql`, enable its Google provider, and set these **GitHub Actions repository variables**:
+
+| Variable | Value |
+| --- | --- |
+| `PUBLIC_SUPABASE_URL` | Project URL |
+| `PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key or legacy anon key |
+| `PUBLIC_GOOGLE_CLIENT_ID` | Google Web client ID |
+
+These identifiers are intended for the browser. Never publish a service-role key, database password, Google client secret, or real benefit document. The builder rejects secret keys and privileged legacy JWTs. Google provider secrets stay in Supabase. Instructions and real-device activation checks are in [PAGES_SETUP](docs/PAGES_SETUP.md).
+
+With no account configuration, the website honestly stays in device-only mode. Account activation cannot be verified until a project and Google provider are configured.
+
+## Development
+
+Use Node.js 24 and Python 3.11 or newer.
 
 ```sh
 npm ci
+npm run typecheck
+npm run check
 npm run build
-npm run db:local
-npm run dev
+npm test
+python -m unittest discover -s tests -p 'test_*.py'
+python scripts/audit_sources.py --site dist/pages
+npm run dev:static
 ```
 
-Wrangler prints its local address, normally http://localhost:8787. Copy .env.example to ignored .dev.vars for local Google testing. The device-only `npm run dev:static` preview runs on port 4317 with no account API. PDF/OCR assets are included; licenses are in web/vendor/licenses.
+The preview is normally http://localhost:4317. To preview the exact deployment, serve `dist/pages` with `ANCHOR_SERVE_ROOT=dist/pages` and `ANCHOR_BASE_PATH=/Anchor/`, then open http://localhost:4317/Anchor/.
 
-## Verification
+For real browser tests set `ANCHOR_BROWSER_TEST_URL` to the preview URL and `ANCHOR_PLAYWRIGHT_MODULE` to the absolute file URL of `node_modules/playwright/index.mjs`. Install the browser with `npx playwright install chromium`, or set `ANCHOR_BROWSER_EXECUTABLE` to an existing Chrome executable. GitHub quality CI installs Chromium and runs the browser checks against the exact Pages artifact.
 
-Run `npm test` and `npm run check`. Browser checks require Chrome and the Playwright module; see the test files for ANCHOR_BROWSER_TEST_URL, ANCHOR_PLAYWRIGHT_MODULE, and ANCHOR_BROWSER_EXECUTABLE settings.
+The TypeScript files under `src/` are canonical. Builds generate adjacent browser ES modules in `web/`; generated modules, local session files, and build outputs are ignored by Git. Core PDF/OCR assets are bundled and retain their third-party licenses.
 
-Before sharing, complete a real Google login, save a fictional notice and receipt, and verify restoration on a second device. Test logout and account separation. Authentication fixtures do not prove real Google login.
+## Organization and languages
 
-The API verifies Google signatures, audience, issuer, expiry, verified email, and one-use nonces. Sessions use HttpOnly cookies; writes require same-origin requests and CSRF tokens. Revisions detect conflicting changes. Guest and practice data remain separate from account data. Google login needs GOOGLE_CLIENT_ID; it is honestly unavailable until configured.
+| Directory/language | Responsibility |
+| --- | --- |
+| `src/domain/` — TypeScript | Typed continuity graph, states, evidence matching, scheduling scenarios |
+| `src/ui/` — TypeScript | Escaped bilingual continuity presentation |
+| `src/infrastructure/` — TypeScript | Supabase authentication and storage transport |
+| `web/` — JavaScript, HTML, CSS | Notice interpretation, scoped local storage, accessible interface, offline reader |
+| `supabase/migrations/` — SQL | Ownership policies, atomic revision updates, deletion tombstones, private file lifecycle |
+| `scripts/audit_sources.py` — Python | Deployment-path checks, source coverage, vendor integrity, public-config audit |
+| `.github/workflows/` — YAML | Repeatable build, tests, and Pages publication |
+| `tests/` | Domain cases, real local Postgres policies, transport races, browser journeys, audit failure cases |
 
-Anchor helps people organize access to benefits; it does not determine official eligibility or submit applications. Check dates against original notices and official agency sources.
+Comments explain ownership boundaries, uncertain evidence, and concurrency decisions rather than narrating each line. See the architecture document for data flow and the continuity document for the graph model.
 
-## Source
+## Verification boundaries
 
-- web/: website, account UI, guide, notice engine, offline PDF/OCR assets
-- server/anchor-api.js: authentication, account workspace, private files
-- server/worker.js: standalone routing and security headers
-- wrangler.jsonc: hosting and storage bindings
-- drizzle/: versioned database migrations
-- tests/: notice engine, privacy, account sync, API, and browser verification
-- docs/: research, demo, impact, Google setup
+Automated tests exercise the actual notice engine, SQL migration in local Postgres, account/cache isolation, conditional saves, file ownership, malformed input, continuity states, and the real browser interface. Authentication fixtures are fictional; they do not prove a successful real Google login. Complete the cross-device checks in the setup guide after configuring Supabase.
+
+Anchor organizes access to services. It does not determine official eligibility, submit applications, predict county acceptance, or infer an official deadline from an uncertain date. Source documents and official agency channels remain authoritative.

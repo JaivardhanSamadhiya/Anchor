@@ -5,63 +5,72 @@ export const SOURCES = [
     id: 'cdss-forms',
     title: 'CDSS forms directory: A–D',
     url: 'https://www.cdss.ca.gov/inforesources/forms-brochures/forms-alphabetic-list/a-d',
-    description: 'Lists CF 377.2 (9/18), CalFresh expiration of certification, and CF 377.6 (8/13), information or verification needed. Related form variants require separate review.',
+    description:
+      'Lists CF 377.2 (9/18), CalFresh expiration of certification, and CF 377.6 (8/13), information or verification needed. Related form variants require separate review.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'cf377-2',
     title: 'CF 377.2 (9/18): expiration of certification',
     url: 'https://www.cdss.ca.gov/Portals/9/FMUForms/A-D/CF%20377.2.pdf?ver=2018-09-20-141948-567',
-    description: 'Official form includes the certification end date and renewal steps. Its standard guidance refers to filing by the 15th day of the last certification month and a separate interview appointment letter.',
+    description:
+      'Official form includes the certification end date and renewal steps. Its standard guidance refers to filing by the 15th day of the last certification month and a separate interview appointment letter.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'cf377-6',
     title: 'CF 377.6 (8/13): information or verification needed',
     url: 'https://www.cdss.ca.gov/cdssweb/entres/forms/english/cf377.6.pdf',
-    description: 'Official form requests specified information after a reported household change. Requests and return dates depend on the notice; it invites people to contact the county if they need help or time.',
+    description:
+      'Official form requests specified information after a reported household change. Requests and return dates depend on the notice; it invites people to contact the county if they need help or time.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'santa-clara-contact',
     title: 'Santa Clara County: benefit services contacts',
     url: 'https://ssa.santaclaracounty.gov/departments/department-employment-and-benefit-services/contact-department-employment-and-benefit',
-    description: 'Publishes the CalFresh contact number, office addresses, document drop boxes, and help with language access or forms. Existing recipients can use their worker’s number on their notice.',
+    description:
+      'Publishes the CalFresh contact number, office addresses, document drop boxes, and help with language access or forms. Existing recipients can use their worker’s number on their notice.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'santa-clara-apply',
     title: 'Santa Clara County: apply and submit documents',
     url: 'https://ssa.santaclaracounty.gov/apply-public-benefits',
-    description: 'Links to BenefitsCal and gives phone, office, mail, fax, and document submission options. Its verification examples are possibilities; the county determines what is needed.',
+    description:
+      'Links to BenefitsCal and gives phone, office, mail, fax, and document submission options. Its verification examples are possibilities; the county determines what is needed.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'san-mateo-apply',
     title: 'San Mateo County: apply for CalFresh',
     url: 'https://www.smcgov.org/hsa/apply-calfresh',
-    description: 'Links to BenefitsCal and county application channels, describes possible verification requests, and provides information about interpretive services.',
+    description:
+      'Links to BenefitsCal and county application channels, describes possible verification requests, and provides information about interpretive services.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'san-mateo-contact',
     title: 'San Mateo County: phone, mail, and fax',
     url: 'https://www.smcgov.org/hsa/apply-mail-phone-or-fax',
-    description: 'Publishes the Human Services Agency call center, Monday–Friday hours, mail address, fax number, and interpretive service information.',
+    description:
+      'Publishes the Human Services Agency call center, Monday–Friday hours, mail address, fax number, and interpretive service information.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'san-mateo-locations',
     title: 'San Mateo County: office locations',
     url: 'https://www.smcgov.org/hsa/office-locations',
-    description: 'Lists regional offices, including the Human Services Agency at 2500 Middlefield Road in Redwood City.',
+    description:
+      'Lists regional offices, including the Human Services Agency at 2500 Middlefield Road in Redwood City.',
     checkedAt: '2026-10-09',
   },
   {
     id: 'san-mateo-verifications',
     title: 'San Mateo County: submit verifications',
     url: 'https://www.smcgov.org/hsa/submit-verifications',
-    description: 'Lists BenefitsCal, mail, county upload, regional office, and fax submission options, plus the number to call with questions.',
+    description:
+      'Lists BenefitsCal, mail, county upload, regional office, and fax submission options, plus the number to call with questions.',
     checkedAt: '2026-10-09',
   },
 ];
@@ -73,7 +82,8 @@ export const COUNTIES = {
     phoneHref: 'tel:+14087583800',
     address: 'Benefits Assistance Center, 1867 Senter Road, San Jose, CA 95112',
     applyUrl: 'https://benefitscal.com/',
-    helpUrl: 'https://ssa.santaclaracounty.gov/departments/department-employment-and-benefit-services/contact-department-employment-and-benefit',
+    helpUrl:
+      'https://ssa.santaclaracounty.gov/departments/department-employment-and-benefit-services/contact-department-employment-and-benefit',
     hours: 'Monday–Friday, 8:00 AM–5:00 PM, except county holidays',
   },
   'san-mateo': {

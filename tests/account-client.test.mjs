@@ -430,7 +430,7 @@ test('browser IndexedDB scopes capture operations before a user switch and prese
     await page.goto(process.env.ANCHOR_BROWSER_TEST_URL);
     await page.locator('[data-action="import"]').first().waitFor();
     const result = await page.evaluate(async () => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       api.setStorageScope('guest');
       const guestWrite = api.saveState({ owner: 'guest', personal: { notices: [{ id: 'guest-record' }], events: [] } });
       api.setStorageScope('scope-A');

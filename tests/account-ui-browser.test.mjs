@@ -36,7 +36,7 @@ async function loadApp(page) {
 
 async function storedState(page, scope = 'guest') {
   return page.evaluate(async owner => {
-    const storage = await import('/platform.js');
+    const storage = await import(new URL('platform.js', location.href).href);
     return storage.loadState(owner);
   }, scope);
 }
@@ -70,6 +70,9 @@ function apiFixture() {
     // Session state belongs to this isolated context; records and file bytes are
     // shared to model a second device reading the same fictional account.
     const session = { authenticated: true };
+    // Replace only the transport module in this isolated fictional-account test.
+    // Real SQL policies and SDK transport are verified in their own test suites.
+    await context.route('**/supabase-transport.js', route => route.fulfill({contentType:'text/javascript',body:'export function createConfiguredSupabaseTransport(){return {fetch:globalThis.fetch.bind(globalThis),onAuthChange:()=>()=>{},destroy:()=>{}}}'}));
     await context.route('**/api/**', async route => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
@@ -120,7 +123,7 @@ function apiFixture() {
   return { record, files, calls, violations, attach, seed: restored };
 }
 
-test('actual app guide: first-visit six stops, replay, and reload preserve the real underlying workspace', { skip: !enabled, timeout: 60_000 }, async () => {
+test('actual app guide: first-visit seven stops, replay, and reload preserve the real underlying workspace', { skip: !enabled, timeout: 60_000 }, async () => {
   const browser = await openBrowser();
   try {
     const { page, errors } = await newPage(browser);
@@ -136,12 +139,13 @@ test('actual app guide: first-visit six stops, replay, and reload preserve the r
       ['Add a notice. Check the original.', 'notices'],
       ['Prepare one step at a time', 'plan'],
       ['Keep proof of what you send', 'evidence'],
+      ['See the whole picture', 'continuity'],
       ['Find a person when you need one', 'support'],
     ];
     for (let index = 0; index < stops.length; index++) {
       const [title, destination] = stops[index];
       await page.locator('#anchor-guide-title').filter({ hasText: title }).waitFor();
-      assert.equal(await page.locator('.anchor-guide-eyebrow').innerText(), `YOUR QUICK TOUR · ${index + 1} OF 6`);
+      assert.equal(await page.locator('.anchor-guide-eyebrow').innerText(), `YOUR QUICK TOUR · ${index + 1} OF 7`);
       assert.equal(new URL(page.url()).hash, `#${destination}`);
       await page.locator('[data-guide-action="next"]').click();
     }
@@ -173,7 +177,7 @@ test('actual app account UI: unconfigured Google setup is explicit and no fake s
     const before = await storedState(page);
     await page.getByRole('button', { name: 'Sign in with Google', exact: true }).click();
     await page.locator('#modal[open]').waitFor();
-    assert.match(await page.locator('#modal').innerText(), /Google sign-in needs the app owner’s Google client ID before it can be activated/);
+    assert.match(await page.locator('#modal').innerText(), /Account sign-in is being connected for this website/);
     assert.equal(await page.locator('#google-signin').evaluate(element => element.children.length), 0);
     assert.equal(await page.locator('#modal').getByRole('button', { name: /sign in with google/i }).count(), 0);
     assert.equal(await page.locator('#modal iframe').count(), 0);

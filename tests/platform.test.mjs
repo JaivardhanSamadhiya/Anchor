@@ -125,7 +125,7 @@ test('real browser: text PDF, image OCR, scanned PDF, page cap, and receipt pers
     }));
     // Run from the application document so its meta CSP applies to imports and workers.
     await page.addInitScript(() => localStorage.setItem('anchor-guide-v1','dismissed'));
-    await page.goto(`${origin}/`);
+    await page.goto(process.env.ANCHOR_BROWSER_TEST_URL);
     await page.locator('[data-action="import"]').first().waitFor();
     const document = await PDFDocument.create();
     const pdfPage = document.addPage([612, 792]);
@@ -133,14 +133,14 @@ test('real browser: text PDF, image OCR, scanned PDF, page cap, and receipt pers
     const lines = ['FICTIONAL PRACTICE NOTICE', 'CalFresh CF377.6 County of Santa Clara', 'Return requested items by October 24, 2026.'];
     lines.forEach((line, index) => pdfPage.drawText(line, { x: 60, y: 730 - index * 50, size: 16, font }));
     const textPDF = await page.evaluate(async bytes => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const result = await api.extractFile(new File([new Uint8Array(bytes)], 'practice.pdf', { type: 'application/pdf' }));
       return { kind: result.kind, pages: result.pages, ocr: result.ocr, hasExpected: result.text.includes('October 24, 2026') };
     }, [...await document.save()]);
     assert.deepEqual(textPDF, { kind: 'pdf', pages: 1, ocr: false, hasExpected: true });
 
     const imageResult = await page.evaluate(async () => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const canvas = document.createElement('canvas'); canvas.width = 1400; canvas.height = 650;
       const context = canvas.getContext('2d'); context.fillStyle = 'white'; context.fillRect(0, 0, 1400, 650);
       context.fillStyle = 'black'; context.font = '36px Arial';
@@ -160,7 +160,7 @@ test('real browser: text PDF, image OCR, scanned PDF, page cap, and receipt pers
     const scannedPage = scanned.addPage([700, 325]);
     scannedPage.drawImage(embedded, { x: 0, y: 0, width: 700, height: 325 });
     const scannedResult = await page.evaluate(async bytes => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const result = await api.extractFile(new File([new Uint8Array(bytes)], 'scan.pdf', { type: 'application/pdf' }));
       return { kind: result.kind, pages: result.pages, ocr: result.ocr, hasExpected: result.text.includes('October 24, 2026') };
     }, [...await scanned.save()]);
@@ -173,7 +173,7 @@ test('real browser: text PDF, image OCR, scanned PDF, page cap, and receipt pers
     mixedPage.drawText('County correspondence scanned attachment with a selectable header.', { x: 20, y: 425, size: 12, font: mixedFont });
     mixedPage.drawImage(mixedImage, { x: 0, y: 30, width: 700, height: 325 });
     const mixedResult = await page.evaluate(async bytes => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const result = await api.extractFile(new File([new Uint8Array(bytes)], 'mixed.pdf', { type: 'application/pdf' }));
       return { ocr: result.ocr, hasExpected: result.text.includes('October 24, 2026') };
     }, [...await mixed.save()]);
@@ -182,14 +182,14 @@ test('real browser: text PDF, image OCR, scanned PDF, page cap, and receipt pers
     const longPDF = await PDFDocument.create();
     for (let number = 0; number < 11; number++) longPDF.addPage([612, 792]);
     const rejection = await page.evaluate(async bytes => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       try { await api.extractFile(new File([new Uint8Array(bytes)], '11-pages.pdf', { type: 'application/pdf' })); return 'unexpected success'; }
       catch (error) { return error.message; }
     }, [...await longPDF.save()]);
     assert.match(rejection, /at most 10 pages/);
 
     const storage = await page.evaluate(async () => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const id = await api.saveAttachment(new File(['fictional receipt'], 'receipt.txt', { type: 'text/plain' }));
       await api.saveState({ notices: [{ id: 'platform-test' }], events: [] });
       const state = await api.loadState();
@@ -226,7 +226,7 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
       window.reportCSPViolation({ directive: event.violatedDirective, blocked: event.blockedURI });
     }));
     await page.addInitScript(() => localStorage.setItem('anchor-guide-v1','dismissed'));
-    await page.goto(`${origin}/`);
+    await page.goto(process.env.ANCHOR_BROWSER_TEST_URL);
     await page.locator('[data-action="import"]').first().waitFor();
     await page.waitForFunction(() => !!navigator.serviceWorker.controller, undefined, { timeout: 15_000 });
 
@@ -277,7 +277,7 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
     await page.locator('#receipt-form button[type="submit"]').click();
     await page.locator('.evidence-row').waitFor();
     const saved = await page.evaluate(async () => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const saved = await api.loadState();
       const notice = saved.personal.notices[0];
       const record = saved.personal.events.find(event => event.kind === 'submitted');
@@ -304,11 +304,11 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
     await page.locator('[data-action="prepare-offline"]').click();
     await page.waitForFunction(() => document.querySelector('#offline-status')?.textContent.includes('ready for offline use'), undefined, { timeout: 60_000 });
     const cached = await page.evaluate(async () => {
-      const manifest = await (await fetch('/vendor/manifest.json')).json();
+      const manifest = await (await fetch(new URL('vendor/manifest.json', location.href))).json();
       const readers = await caches.open('anchor-readers-v1');
       const missing = [];
-      for (const asset of manifest.assets) if (!(await readers.match(asset.path))) missing.push(asset.path);
-      return { total: manifest.assets.length, missing, shell: !!(await caches.match('/index.html')) };
+      for (const asset of manifest.assets) if (!(await readers.match(new URL(asset.path, location.href).href))) missing.push(asset.path);
+      return { total: manifest.assets.length, missing, shell: !!(await caches.match(new URL('index.html', location.href).href)) };
     });
     assert.ok(cached.total > 10);
     assert.deepEqual(cached.missing, []);
@@ -318,7 +318,7 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
     await page.locator('[data-action="import"]').first().waitFor();
     assert.equal(await page.evaluate(() => navigator.onLine), false);
     const persisted = await page.evaluate(async id => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const saved = await api.loadState();
       return { notice: saved.personal.notices.some(notice => notice.id === id && notice.reviewed), receiptCount: saved.personal.events.filter(event => event.kind === 'submitted').length };
     }, saved.noticeId);
@@ -326,7 +326,7 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
     await importViaUI('fictional-offline.pdf', 'application/pdf', pdfBytes);
     await importViaUI('fictional-offline-photo.png', 'image/png', photoBytes);
     const offlineImports = await page.evaluate(async () => {
-      const api = await import('/platform.js');
+      const api = await import(new URL('platform.js', location.href).href);
       const saved = await api.loadState();
       return saved.personal.notices.slice(0, 2).map(notice => ({ filename: notice.filename, kind: notice.importKind,
         ocr: notice.ocr, hasDate: notice.sourceText.includes('October 24, 2026'), originalSaved: !!notice.originalAttachmentId,
