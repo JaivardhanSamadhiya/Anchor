@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#173c3d" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta
+      name="description"
+      content="How Anchor handles your notices, Google sign-in information, local storage, and saved account data."
+    />
+    <title>Privacy policy — Anchor</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./legal.css" />
+  </head>
+  <body>
+    <a class="legal-skip" href="#main">Skip to content</a>
+    <header class="legal-header">
+      <a class="legal-brand" href="./"
+        ><img src="./icon.svg" width="40" height="40" alt="" />Anchor</a
+      >
+      <a class="legal-back" href="./">Back to my workspace</a>
+    </header>
+    <main class="legal-main" id="main">
+      <div class="legal-eyebrow">Your information, explained</div>
+      <h1>Privacy policy</h1>
+      <p class="legal-date">Last updated: October 10, 2026</p>
+      <p class="legal-lead">
+        Anchor helps you read benefit notices, check your next steps, and keep your progress
+        together. This policy describes the current website and its optional Google sign-in and
+        Supabase account storage.
+      </p>
+      <div class="legal-summary" aria-label="Privacy at a glance">
+        <div>
+          <strong>Reading happens here.</strong>
+          <p>PDF text extraction and image recognition run in your browser.</p>
+        </div>
+        <div>
+          <strong>Sign-in enables saving.</strong>
+          <p>Your personal workspace can sync to a private account through Supabase.</p>
+        </div>
+        <div>
+          <strong>You have controls.</strong>
+          <p>Use guest mode, download a backup, or delete your saved workspace.</p>
+        </div>
+      </div>
+      <section class="legal-section">
+        <h2>Who operates Anchor</h2>
+        <p>
+          Anchor is an independent student project, not a government agency. For privacy questions
+          or account deletion requests, contact
+          <a href="mailto:jaisamadhiya@gmail.com">jaisamadhiya@gmail.com</a>. Please do not email
+          benefit notices, Social Security numbers, or other sensitive documents.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Information you choose to add</h2>
+        <p>
+          Your workspace may contain original PDFs and images, extracted notice text, dates and
+          requests you review, preparation progress, submission records, receipts, agency-response
+          notes, and language and county preferences. Documents can contain personal information;
+          add only records you are authorized to use.
+        </p>
+        <p>
+          Anchor uses this information to show source-linked notice details, organize tasks and
+          deadlines, record your progress, and create exports you request. The fictional practice
+          workspace stays separate from your personal workspace.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Google sign-in information</h2>
+        <p>
+          If you choose Google sign-in, Google and Supabase Auth provide the account identifier,
+          email address, and basic profile information associated with your account, such as your
+          name and profile image. Anchor displays your name and email and uses your authenticated
+          account identifier to connect you to your own saved workspace.
+        </p>
+        <p>
+          Anchor requests basic identity scopes only: OpenID, email, and profile. It does not
+          request access to your Gmail messages, Google Drive files, contacts, or Google Calendar.
+          Calendar exports are files you choose to import yourself.
+        </p>
+        <p>
+          Google sign-in credentials are exchanged with Supabase Auth to establish an Anchor
+          session. The Supabase session and a small display-identity cache are stored in your
+          browser so sign-in can persist. Google profile information may also be retained in your
+          Supabase Auth account. Anchor does not sell Google user data, use it for advertising, or
+          use it to train AI models.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Local storage and optional cloud storage</h2>
+        <p>
+          In guest mode, personal notices, original files, and progress stay in this browser's
+          storage. Browser settings, storage cleanup, private browsing, or changing devices can make
+          that information unavailable. Export a backup for records you need to keep.
+        </p>
+        <p>
+          When signed in, your personal workspace and its attached originals and receipts sync to
+          your Supabase account. Database ownership rules and a private file bucket restrict normal
+          app access to your authenticated account. Service administrators may access hosted data
+          when necessary to operate, support, or secure the service.
+        </p>
+        <p>
+          An account-specific local copy supports offline work. Changes made offline remain on that
+          device until a successful sync. Existing guest data moves into an empty account workspace
+          only when you choose to copy it; its original guest copy remains on the device.
+        </p>
+        <p>
+          Anchor caches website and PDF/OCR reader assets for offline use and stores interface
+          preferences locally. The current app has no advertising or analytics tracking code. It
+          does not send notice content to an AI service or remote document-processing service.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Services and information sharing</h2>
+        <p>
+          GitHub Pages serves the website. Google provides sign-in. Supabase provides
+          authentication, database storage, and private file storage for account users. These
+          providers handle the network requests and information needed to deliver those services
+          under their own policies. Guest documents are not uploaded simply by opening the website.
+        </p>
+        <p>
+          See the
+          <a
+            href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+            >GitHub privacy statement</a
+          >, <a href="https://policies.google.com/privacy">Google privacy policy</a>, and
+          <a href="https://supabase.com/privacy">Supabase privacy policy</a>. Opening an official
+          agency link takes you to that agency's website and policies. Anchor does not automatically
+          submit your documents to an agency or share your workspace with other users.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Retention, deletion, and shared devices</h2>
+        <p>
+          Local records remain until you delete them or the browser removes its storage. Cloud
+          workspace records remain until you delete them or request their removal. In your personal
+          workspace, open <strong>Manage saved data</strong> and choose
+          <strong>Delete workspace</strong> to clear that workspace. Signed-in deletion requires a
+          connection to remove cloud data; interrupted file cleanup can require a retry.
+        </p>
+        <p>
+          Deleting a workspace does not delete your Google account or your Supabase Auth identity.
+          Contact the support email above if you want the remaining Anchor account identity removed.
+          Minimal deletion markers, provider logs, and backups may remain under the providers'
+          retention processes; deletion does not promise immediate removal from every backup.
+        </p>
+        <p>
+          After your changes have saved, sign out to clear that account's local workspace cache.
+          Guest records remain separate and must be deleted separately. Copies you downloaded,
+          exported, or placed in another service are outside Anchor's deletion controls.
+        </p>
+        <p>
+          Your browser and operating-system security protect local records; Anchor does not add a
+          separate password or encryption layer to browser storage. Use your own device when
+          possible and avoid leaving a signed-in workspace open on a shared device.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Policy updates</h2>
+        <p>
+          This policy will be updated when Anchor's data practices change. New features that change
+          how your documents are processed or shared will include an explanation in the app before
+          you use them. The date above identifies the current policy.
+        </p>
+      </section>
+    </main>
+    <footer class="legal-footer">
+      <span>Anchor · An independent student project</span>
+      <nav aria-label="Policy navigation">
+        <a href="./">Workspace</a><a href="./terms.html">Terms of use</a>
+      </nav>
+    </footer>
+  </body>
+</html>

@@ -1,10 +1,13 @@
 // Scope every cache key to this installation (e.g. /Anchor/), not the host root.
 const base = new URL('./', self.location.href);
-const shellCache = `anchor-shell-v3:${base.pathname}`;
+const shellCache = `anchor-shell-v4:${base.pathname}`;
 const readerCache = `anchor-readers-v2:${base.pathname}`;
 const shell = [
   '',
   'index.html',
+  'privacy.html',
+  'terms.html',
+  'legal.css',
   'styles.css',
   'guide.css',
   'account-ui.css',
