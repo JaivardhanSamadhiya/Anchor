@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.wrangler/
+qa/
+.env*
+.dev.vars*
+!.env.example
+*.tar.gz
+test-results.log
