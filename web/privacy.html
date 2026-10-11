@@ -122,20 +122,23 @@
         <h2>Guided forms</h2>
         <p>
           Official blank forms are served from Anchor's site and displayed on your device. Form
-          answers and PDF draft filling are processed in your browser. The supported CF 37 export
-          fills a verified subset of fields and leaves signatures blank; table notes are downloaded
-          separately. Other forms may offer preparation notes and a local preview without automatic
-          field filling. Saving a draft follows the workspace storage choices above and does not
+          answers and PDF draft filling are processed in your browser. CF 37 and SAR 7B answers,
+          including supported table rows, appear on the actual form as you type. The full editable
+          PDF can be downloaded; signatures and signing dates remain blank. Earlier freeform notes
+          remain available for you to transfer. Other forms offer notes and a local preview. Saving
+          a draft follows the workspace storage choices above and does not
           submit it to an agency.
         </p>
       </section>
       <section class="legal-section">
-        <h2>Public-program assistant and Gemini</h2>
+        <h2>Anchor assistant</h2>
         <p>
           The source guide works without cloud AI. Your typed question is interpreted locally into a
-          predefined public topic. If you choose Gemini, only the selected program, public question,
+          predefined public topic. Optional Anchor AI uses Google's Gemini API. Only the selected program, public question,
           focus, language, navigation destination, and adult-use confirmation go to Anchor's
-          authenticated Supabase function. It builds a prompt from public sources. Raw typed
+          authenticated Supabase function. Form help can also send reviewed form, section and
+          question identifiers with a public help category. Highlighted text stays on your device.
+          The function builds a prompt from public sources. Raw typed
           questions, conversation history, notice text, uploads, form answers, account profile
           information, and personal workspace data are not sent to Gemini.
         </p>
