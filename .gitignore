@@ -13,4 +13,11 @@ web/continuity.js*
 web/continuity-view.js*
 web/supabase-transport.js*
 web/config.js*
+web/next-step-cue.js*
+web/form-assistance.js*
+web/form-assistance-view.js*
+web/form-documents.js*
+web/program-assistant.js*
+web/google-calendar.js*
+web/google-calendar-client.js*
 __pycache__/

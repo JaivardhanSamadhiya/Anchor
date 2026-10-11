@@ -293,3 +293,125 @@ dialog.anchor-guide::backdrop {
     display: none !important;
   }
 }
+
+/* The next-action cue is nonmodal: the real page controls remain available. */
+.anchor-next-step {
+  position: fixed;
+  z-index: 80;
+  box-sizing: border-box;
+  width: min(310px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 16px 18px;
+  border: 1px solid #d5dfd5;
+  border-left: 4px solid #ebc377;
+  border-radius: 13px;
+  background: #fffdf6;
+  color: #173c3d;
+  box-shadow: 0 8px 30px #173c3d24;
+  font:
+    14px/1.5 'Segoe UI',
+    sans-serif;
+}
+.anchor-next-step[hidden] {
+  display: none;
+}
+.anchor-next-step-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.anchor-next-step-eyebrow {
+  color: #658151;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.anchor-next-step-dismiss {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  height: 28px;
+  margin: -4px -6px -4px 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #59745f;
+  font:
+    22px/1 'Segoe UI',
+    sans-serif;
+  cursor: pointer;
+}
+.anchor-next-step-dismiss:hover {
+  background: #edf2e5;
+}
+.anchor-next-step-title {
+  margin: 9px 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.anchor-next-step-description {
+  margin: 6px 0 0;
+  color: #536d60;
+  font-size: 12px;
+}
+.anchor-next-step-continue {
+  min-height: 36px;
+  margin-top: 12px;
+  padding: 7px 12px;
+  border: 1px solid #cba963;
+  border-radius: 8px;
+  background: #f3d692;
+  color: #193e31;
+  font:
+    600 12px/1.4 'Segoe UI',
+    sans-serif;
+  cursor: pointer;
+}
+.anchor-next-step button:focus-visible {
+  outline: 3px solid #337957;
+  outline-offset: 3px;
+}
+.anchor-next-action-target {
+  outline: 3px solid #d6a746 !important;
+  outline-offset: 4px;
+  animation: anchor-next-action-pulse 2.2s ease-out 3;
+}
+@keyframes anchor-next-action-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 #d6a74600;
+  }
+  45% {
+    box-shadow: 0 0 0 10px #d6a74630;
+  }
+}
+.anchor-next-step-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anchor-next-action-target {
+    animation: none;
+  }
+}
+@media print {
+  .anchor-next-step,
+  .anchor-next-step-status {
+    display: none !important;
+  }
+  .anchor-next-action-target {
+    outline: none !important;
+    animation: none;
+  }
+}

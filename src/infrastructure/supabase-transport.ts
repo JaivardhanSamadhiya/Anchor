@@ -6,6 +6,11 @@
  * Storage calls. SQL remains authoritative; validation here gives fast feedback.
  */
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
+import {
+  parseAssistantRequest,
+  parseAssistantResponse,
+  type AssistantResponse,
+} from '../domain/program-assistant.ts';
 
 type AuthChange = {
   event: string;
@@ -661,6 +666,40 @@ export function createSupabaseTransport({
 
   return {
     fetch: requestFetch,
+    async askProgram(value: unknown, signal?: AbortSignal): Promise<AssistantResponse> {
+      const request = parseAssistantRequest(value);
+      if (!request) throw new Error('Choose a public program topic before asking Gemini.');
+      const start = epoch;
+      const user = await verifiedUser(false, signal);
+      abortIfNeeded(signal);
+      if (start !== epoch || (identity !== undefined && identity !== user?.id))
+        throw new Error('The account changed. Ask again after signing in.');
+      const { data, error } = await abortable(
+        client!.functions.invoke('anchor-assistant', { body: request }),
+        signal,
+      );
+      abortIfNeeded(signal);
+      if (start !== epoch || (identity !== undefined && identity !== user?.id))
+        throw new Error('The account changed. This answer was discarded.');
+      if (error) {
+        const status = error.context?.status;
+        if (status === 404)
+          throw new Error(
+            'The Gemini endpoint has not been deployed yet. Official source guidance is available.',
+          );
+        if (status === 429)
+          throw new Error(
+            'The AI request limit was reached. Try again later or use official source guidance.',
+          );
+        if (status === 401 || status === 403)
+          throw new Error('Reconnect and sign in again to use Gemini.');
+        throw new Error('Gemini is unavailable. The private notice workspace is still available.');
+      }
+      const answer = parseAssistantResponse(data, request);
+      if (!answer)
+        throw new Error('The AI answer could not be verified against the approved sources.');
+      return answer;
+    },
     onAuthChange(listener: (event: AuthChange) => void) {
       listeners.add(listener);
       return () => listeners.delete(listener);

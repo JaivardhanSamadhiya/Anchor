@@ -1,6 +1,6 @@
-// Anchor's walkthrough only changes the displayed page and its own preference.
+// Anchor's walkthrough only changes the displayed page and its session preference.
 // It never imports, confirms, submits, or deletes a person's notice or progress.
-export const GUIDE_STORAGE_KEY = 'anchor-guide-v1';
+export const GUIDE_STORAGE_KEY = 'anchor-guide-session-v2';
 
 export function guideSteps(lang = 'en') {
   const es = lang === 'es';
@@ -100,27 +100,37 @@ export function createGuide({
   document.body.append(dialog);
   let active = false,
     welcome = false,
+    accountWelcome = false,
     index = 0,
     previousFocus = null;
   let frame = 0,
     transition = 0,
     navigating = false,
-    destroyed = false;
+    destroyed = false,
+    entrySeen = false,
+    pendingWelcome = null;
   const locale = () => (getState()?.lang === 'es' ? 'es' : 'en');
   const t = (en, es) => (locale() === 'es' ? es : en);
   function remember(status) {
+    entrySeen = true;
     try {
-      localStorage.setItem(storageKey, status);
+      sessionStorage.setItem(storageKey, status);
     } catch {
       /* A blocked preference must not block access. */
     }
   }
   function seen() {
     try {
-      return Boolean(localStorage.getItem(storageKey));
+      return entrySeen || Boolean(sessionStorage.getItem(storageKey));
     } catch {
-      return false;
+      return entrySeen;
     }
+  }
+  function blocked() {
+    return Boolean(
+      document.querySelector('dialog[open]:not(.anchor-guide)') ||
+      document.querySelector('#app[inert]'),
+    );
   }
   function captureFocus() {
     const element = document.activeElement;
@@ -234,8 +244,8 @@ export function createGuide({
         <button class="anchor-guide-close" data-guide-action="skip" aria-label="${t('Close welcome', 'Cerrar bienvenida')}">×</button>
         <div class="anchor-guide-brand"><img src="./icon.svg" alt=""><span>Anchor</span></div>
         <p class="anchor-guide-eyebrow">${t('A LITTLE HELP GETTING STARTED', 'AYUDA PARA EMPEZAR')}</p>
-        <h2 id="anchor-guide-title">${t('Let’s find your next step.', 'Encontremos tu siguiente paso.')}</h2>
-        <p id="anchor-guide-description">${t('A quick tour will show you how to turn a benefits letter into a checked plan—and keep proof of what you send.', 'Esta guía breve te enseña a convertir un aviso de beneficios en un plan verificado y conservar pruebas de lo que envías.')}</p>
+        <h2 id="anchor-guide-title">${accountWelcome ? t('You’re signed in. Let’s get started.', 'Ya iniciaste sesión. Empecemos.') : t('Let’s find your next step.', 'Encontremos tu siguiente paso.')}</h2>
+        <p id="anchor-guide-description">${accountWelcome ? t('Your account workspace is ready. This quick tour shows where to check your letters, prepare the next step, and find your saved records.', 'Tu espacio de cuenta está listo. Esta guía breve muestra dónde revisar tus avisos, preparar el siguiente paso y encontrar tus registros guardados.') : t('A quick tour will show you how to turn a benefits letter into a checked plan—and keep proof of what you send.', 'Esta guía breve te enseña a convertir un aviso de beneficios en un plan verificado y conservar pruebas de lo que envías.')}</p>
         <ol class="anchor-guide-preview"><li><span>1</span>${t('Bring your letter', 'Agrega tu aviso')}</li><li><span>2</span>${t('Check dates and next steps', 'Revisa fechas y pasos')}</li><li><span>3</span>${t('Save your progress and receipts', 'Guarda tu progreso y recibos')}</li></ol>
         <p class="anchor-guide-note">${t('About a minute. We’ll only show you around; your letters and progress won’t change.', 'Aproximadamente un minuto. Solo te mostramos el sitio; tus avisos y tu progreso no cambian.')}</p>
         <div class="anchor-guide-actions"><button class="anchor-guide-secondary" data-guide-action="skip">${t('Maybe later', 'Más tarde')}</button><button class="anchor-guide-primary" data-guide-action="start">${t('Start walkthrough', 'Comenzar guía')} <span aria-hidden="true">→</span></button></div>
@@ -279,18 +289,40 @@ export function createGuide({
   }
   function start() {
     if (destroyed) return;
+    pendingWelcome = null;
     remember('started');
     return showStep(0);
   }
-  function autoStart() {
-    if (destroyed || active || seen() || document.querySelector('#modal[open]')) return false;
+  function showWelcome(reason) {
+    if (destroyed) return false;
+    if (blocked()) {
+      // Account activation can finish while its dialog is still closing. The
+      // next application render retries rather than stacking modal dialogs.
+      pendingWelcome = reason;
+      return false;
+    }
+    pendingWelcome = null;
     welcome = true;
+    accountWelcome = reason === 'sign-in';
     remember('seen');
     open();
     paint();
     return true;
   }
+  function autoStart() {
+    if (destroyed || active || seen()) return false;
+    return showWelcome('entry');
+  }
+  function afterSignIn() {
+    // Called once by the account controller after a verified workspace becomes
+    // ready. Session dismissal suppresses repeat entry, never a fresh sign-in.
+    return showWelcome('sign-in');
+  }
   function refresh() {
+    if (pendingWelcome && !blocked()) {
+      showWelcome(pendingWelcome);
+      return;
+    }
     if (active && !navigating) paint({ focus: false });
   }
   function onClick(event) {
@@ -340,6 +372,7 @@ export function createGuide({
   window.addEventListener('scroll', schedulePosition, true);
   return {
     autoStart,
+    afterSignIn,
     start,
     refresh,
     close: () => close(),
@@ -350,6 +383,7 @@ export function createGuide({
       if (destroyed) return;
       close();
       destroyed = true;
+      pendingWelcome = null;
       window.removeEventListener('resize', schedulePosition);
       window.removeEventListener('scroll', schedulePosition, true);
       dialog.remove();

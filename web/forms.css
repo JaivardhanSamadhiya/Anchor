@@ -1,0 +1,412 @@
+/* Guided form preparation uses the app's existing ink, paper and sage palette. */
+dialog:has(.form-assistance) {
+  width: min(1200px, calc(100vw - 32px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+dialog:has(.form-assistance) > .modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--white);
+}
+.form-assistance {
+  padding: 22px 26px 26px;
+}
+.form-assist-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.form-assist-badge,
+.form-assist-eyebrow {
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.form-assist-intro h3 {
+  margin: 7px 0 6px;
+  font-size: 24px;
+  letter-spacing: -0.035em;
+}
+.form-assist-intro p,
+.form-assist-description,
+.form-assist-export p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #536e6a;
+  max-width: 680px;
+}
+.form-assist-draft-status {
+  flex-shrink: 0;
+  border-radius: 20px;
+  background: #fff4d9;
+  color: #7c581a;
+  border: 1px solid #e6c995;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.form-assist-privacy,
+.form-assist-language {
+  font-size: 12px;
+  line-height: 1.6;
+  background: #edf4ee;
+  border-left: 3px solid #82a896;
+  border-radius: 0 7px 7px 0;
+  padding: 10px 13px;
+  margin: 16px 0 20px;
+  color: #3b6357;
+}
+.form-assist-layout {
+  display: grid;
+  grid-template-columns: 168px minmax(270px, 1fr) minmax(260px, 0.9fr);
+  gap: 21px;
+  align-items: start;
+}
+.form-assist-sections {
+  display: grid;
+  gap: 7px;
+}
+.form-assist-sections button {
+  padding: 10px 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  text-align: left;
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #536e6a;
+}
+.form-assist-sections button > span:first-child {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #eaf0e9;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+.form-assist-sections button[aria-current] {
+  color: #1c4d44;
+  border-color: #c5d7c9;
+  background: #edf3ed;
+  font-weight: 600;
+}
+.form-assist-sections button[aria-current] > span:first-child {
+  color: #fff;
+  background: #285c59;
+}
+.form-assist-progress {
+  padding: 12px 9px;
+  font-size: 11px;
+  color: #59766b;
+  line-height: 1.7;
+}
+.form-assist-current {
+  min-width: 0;
+}
+.form-assist-section-head {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.form-assist-section-head h3 {
+  font-size: 19px;
+  line-height: 1.25;
+  margin: 5px 0 9px;
+  letter-spacing: -0.025em;
+}
+.form-assist-section-head .link-button {
+  font-size: 11px;
+  text-align: right;
+  min-width: 70px;
+}
+.form-assist-description {
+  margin-bottom: 18px;
+}
+.form-assist-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px 12px;
+}
+.form-assist-field {
+  min-width: 0;
+  margin: 0;
+}
+.form-assist-field label {
+  line-height: 1.5;
+  font-size: 12px;
+}
+.form-assist-field input,
+.form-assist-field select,
+.form-assist-field textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 10px;
+  font-size: 13px;
+}
+.form-assist-field textarea {
+  min-height: 94px;
+  resize: vertical;
+}
+.form-assist-field .hint,
+.form-assist-check p {
+  font-size: 10px;
+  line-height: 1.5;
+  margin-top: 5px;
+  color: #6c7e72;
+}
+.form-assist-wide,
+.form-assist-check,
+.form-assist-field:has(select) {
+  grid-column: 1 / -1;
+}
+.form-assist-check label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.form-assist-check input {
+  accent-color: #285c59;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.form-assist-check p {
+  padding-left: 24px;
+}
+.form-assist-save-row,
+.form-assist-step-buttons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+.form-assist-save-row .hint {
+  font-size: 10px;
+  line-height: 1.4;
+  max-width: 190px;
+}
+.form-assist-document {
+  border: 1px solid #dbe4d9;
+  border-radius: 12px;
+  background: #f5f6f0;
+  padding: 11px;
+  min-width: 0;
+}
+.form-assist-viewer-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 10px;
+  gap: 6px;
+}
+.form-assist-viewer {
+  background: #fff;
+  border: 1px solid #e1e5dd;
+  min-height: 300px;
+  max-height: 510px;
+  overflow: auto;
+  border-radius: 4px;
+}
+.form-assist-viewer p {
+  padding: 18px;
+  font-size: 12px;
+  color: #536e6a;
+}
+.form-assist-viewer canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.form-assist-page-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 11px;
+}
+.form-assist-page-buttons button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.form-assist-source {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #536e6a;
+  margin: 14px 0 8px;
+}
+.form-assist-source-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 12px;
+  font-size: 11px;
+}
+.form-assist-source-links a,
+.form-assist-portal a {
+  color: #285c59;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.form-assist-attach {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #536e6a;
+  margin-top: 16px;
+  border-top: 1px solid #dbe4d9;
+  padding-top: 13px;
+}
+.form-assist-attach input {
+  display: block;
+  margin-top: 8px;
+  max-width: 100%;
+  font-size: 10px;
+}
+.form-assist-empty-preview {
+  min-height: 230px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 18px;
+  gap: 10px;
+}
+.form-assist-empty-preview > span {
+  font-size: 30px;
+  color: #729387;
+}
+.form-assist-empty-preview strong {
+  font-size: 13px;
+}
+.form-assist-empty-preview p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #536e6a;
+}
+.form-assist-checklist {
+  border: 1px solid #dbe4d9;
+  border-radius: 10px;
+  margin-top: 23px;
+  padding: 14px 17px;
+  font-size: 12px;
+}
+.form-assist-checklist summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.form-assist-checklist ol {
+  margin: 15px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 12px;
+}
+.form-assist-checklist p {
+  color: #536e6a;
+  margin: 3px 0 0;
+  line-height: 1.6;
+}
+.form-assist-export {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #dbe4d9;
+  margin-top: 22px;
+  padding-top: 20px;
+}
+.form-assist-export strong {
+  font-size: 13px;
+}
+.form-assist-export p {
+  font-size: 11px;
+  max-width: 450px;
+  margin-top: 5px;
+}
+.form-assist-export .button-row {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.form-assist-portal {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  font-size: 11px;
+  margin-top: 18px;
+  line-height: 1.6;
+}
+.form-assist-portal span {
+  color: #536e6a;
+}
+@media (max-width: 1000px) {
+  .form-assist-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.85fr);
+  }
+  .form-assist-sections {
+    grid-column: 1 / -1;
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 5px;
+  }
+  .form-assist-sections button {
+    min-width: 150px;
+    max-width: 170px;
+  }
+  .form-assist-progress {
+    display: none;
+  }
+}
+@media (max-width: 700px) {
+  dialog:has(.form-assistance) {
+    width: calc(100vw - 20px);
+  }
+  .form-assistance {
+    padding: 18px;
+  }
+  .form-assist-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .form-assist-sections,
+  .form-assist-current,
+  .form-assist-document {
+    width: 100%;
+  }
+  .form-assist-document {
+    order: 3;
+  }
+  .form-assist-intro {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .form-assist-intro h3 {
+    font-size: 21px;
+  }
+  .form-assist-export,
+  .form-assist-portal {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .form-assist-export .button-row {
+    flex-shrink: 1;
+    width: 100%;
+  }
+  .form-assist-export button {
+    white-space: normal;
+  }
+}

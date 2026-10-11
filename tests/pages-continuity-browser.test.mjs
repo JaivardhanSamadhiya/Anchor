@@ -18,7 +18,7 @@ async function openApp() {
   page.on('response', response => {
     if (response.status() === 404) missing.push(response.url());
   });
-  await page.addInitScript(() => localStorage.setItem('anchor-guide-v1', 'dismissed'));
+  await page.addInitScript(() => sessionStorage.setItem('anchor-guide-session-v2', 'dismissed'));
   await page.goto(process.env.ANCHOR_BROWSER_TEST_URL);
   await page.locator('.shell').waitFor();
   await page.waitForFunction(() => !document.querySelector('#app')?.inert);

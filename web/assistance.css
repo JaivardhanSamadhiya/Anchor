@@ -1,0 +1,170 @@
+.assistant-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 22px;
+  align-items: start;
+}
+.assistant-intro,
+.assistant-composer,
+.assistant-side {
+  padding: 24px;
+}
+.assistant-intro {
+  border-bottom: 1px solid var(--line, #e2e5df);
+}
+.assistant-intro p,
+.assistant-side p {
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 12px 0 0;
+}
+.assistant-messages {
+  padding: 0 24px;
+  max-height: 620px;
+  overflow: auto;
+}
+.assistant-message {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line, #e2e5df);
+}
+.assistant-question {
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: #173c3d;
+}
+.assistant-topic {
+  font-size: 11px;
+  line-height: 1.5;
+  background: #f1f4ee;
+  border-radius: 6px;
+  padding: 9px 12px;
+  margin-bottom: 12px;
+}
+.assistant-answer {
+  white-space: pre-wrap;
+  line-height: 1.75;
+  font-size: 14px;
+  margin: 14px 0;
+}
+.assistant-sources {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  margin: 14px 0;
+}
+.assistant-sources a {
+  color: #376154;
+  overflow-wrap: anywhere;
+}
+.assistant-composer {
+  display: grid;
+  gap: 10px;
+}
+.assistant-composer > label {
+  font-size: 12px;
+  font-weight: 600;
+}
+.assistant-composer textarea,
+.assistant-composer select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #c5cec5;
+  background: white;
+  border-radius: 7px;
+  color: #173c3d;
+  font: inherit;
+}
+.assistant-composer textarea {
+  resize: vertical;
+}
+.assistant-composer .assistant-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+.assistant-consent input {
+  flex: none;
+  margin-top: 4px;
+  accent-color: #376154;
+}
+.assistant-example {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 0;
+  color: #376154;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #e2e5df;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.assistant-side h2,
+.calendar-panel h2 {
+  font-size: 18px;
+  margin: 0 0 14px;
+}
+.assistant-side h3 {
+  font-size: 14px;
+  margin: 24px 0 0;
+}
+.calendar-panel {
+  padding: 24px;
+  margin: 16px 0;
+}
+.calendar-event {
+  padding: 18px 0;
+  border-bottom: 1px solid #e2e5df;
+  display: flex;
+  align-items: start;
+  gap: 14px;
+}
+.calendar-event input {
+  margin-top: 5px;
+  accent-color: #376154;
+}
+.calendar-event strong {
+  display: block;
+  font-size: 14px;
+}
+.calendar-event p {
+  font-size: 12px;
+  margin: 6px 0;
+  line-height: 1.6;
+}
+.task-assist-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.task-detail {
+  font-size: 12px !important;
+  max-width: 620px;
+  line-height: 1.65 !important;
+}
+@media (max-width: 1000px) {
+  .assistant-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .assistant-side {
+    order: 2;
+  }
+}
+@media (max-width: 600px) {
+  .assistant-intro,
+  .assistant-composer,
+  .assistant-side,
+  .calendar-panel {
+    padding: 18px;
+  }
+  .assistant-messages {
+    padding: 0 18px;
+  }
+}

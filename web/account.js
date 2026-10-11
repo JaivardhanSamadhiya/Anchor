@@ -771,16 +771,24 @@ export function createAccountSync(options = {}) {
     if (!surface?.google?.accounts?.id) {
       if (!googleScriptPromise)
         googleScriptPromise = new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = GOOGLE_SCRIPT;
-          script.async = true;
-          script.defer = true;
-          script.onload = resolve;
-          script.onerror = () => {
-            googleScriptPromise = undefined;
-            reject(new Error('Google sign-in could not load. Reconnect and try again.'));
-          };
-          document.head.append(script);
+          const existing = document.querySelector(`script[src="${GOOGLE_SCRIPT}"]`);
+          const script = existing || document.createElement('script');
+          if (!existing) {
+            script.src = GOOGLE_SCRIPT;
+            script.async = true;
+            script.defer = true;
+          }
+          script.addEventListener('load', resolve, { once: true });
+          script.addEventListener(
+            'error',
+            () => {
+              googleScriptPromise = undefined;
+              script.remove();
+              reject(new Error('Google sign-in could not load. Reconnect and try again.'));
+            },
+            { once: true },
+          );
+          if (!existing) document.head.append(script);
         });
       await googleScriptPromise;
     }

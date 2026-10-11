@@ -124,7 +124,7 @@ test('real browser: text PDF, image OCR, scanned PDF, page cap, and receipt pers
       window.reportCSPViolation({ directive: event.violatedDirective, blocked: event.blockedURI });
     }));
     // Run from the application document so its meta CSP applies to imports and workers.
-    await page.addInitScript(() => localStorage.setItem('anchor-guide-v1','dismissed'));
+    await page.addInitScript(() => sessionStorage.setItem('anchor-guide-session-v2','dismissed'));
     await page.goto(process.env.ANCHOR_BROWSER_TEST_URL);
     await page.locator('[data-action="import"]').first().waitFor();
     const document = await PDFDocument.create();
@@ -225,7 +225,7 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
     await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => {
       window.reportCSPViolation({ directive: event.violatedDirective, blocked: event.blockedURI });
     }));
-    await page.addInitScript(() => localStorage.setItem('anchor-guide-v1','dismissed'));
+    await page.addInitScript(() => sessionStorage.setItem('anchor-guide-session-v2','dismissed'));
     await page.goto(process.env.ANCHOR_BROWSER_TEST_URL);
     await page.locator('[data-action="import"]').first().waitFor();
     await page.waitForFunction(() => !!navigator.serviceWorker.controller, undefined, { timeout: 15_000 });

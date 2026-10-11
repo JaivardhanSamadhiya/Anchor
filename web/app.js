@@ -26,6 +26,18 @@ import { renderContinuity } from './continuity-view.js';
 import { assessContinuity, validDate } from './continuity.js';
 import { createConfiguredSupabaseTransport } from './supabase-transport.js';
 import { settings } from './config.js';
+import { createNextStepCue } from './next-step-cue.js';
+import {
+  getFormAssistance,
+  createFormDraft,
+  updateFormDraft,
+  toPdfFieldValues,
+  formDraftSummary,
+} from './form-assistance.js';
+import { renderFormAssistance } from './form-assistance-view.js';
+import { createProgramAssistant } from './assistant-ui.js';
+import { getCalendarCandidates, createCalendarEvent } from './google-calendar.js';
+import { createCalendarClient } from './google-calendar-client.js';
 
 // Resolve assets beside this module so the same build works under /Anchor/.
 const assetURL = (path) => new URL(path.replace(/^\//, ''), import.meta.url).href;
@@ -87,7 +99,39 @@ let state,
   busy = false,
   importError = '',
   storageFailed = false;
-let account, guide, accountTransport;
+let account, guide, accountTransport, nextStepCue;
+let signInTourPending = false;
+let activeForm = null,
+  formPreviewGeneration = 0;
+let calendarStatus = '',
+  calendarBusy = false,
+  calendarIdentityReady = false,
+  calendarPreparing = false,
+  calendarPreparationFailed = false,
+  calendarPending = null;
+const calendarClient = createCalendarClient({ clientId: settings.googleClientId });
+const assistant = createProgramAssistant({
+  getAccount: () => accountInfo,
+  getLanguage: () => state?.lang || 'en',
+  ask: (request, signal) => accountTransport.askProgram(request, signal),
+  redraw: () => {
+    if (page === 'assistant') render({ captureAssistant: false });
+  },
+  navigate: (destination) => navigate(destination),
+  escapeHTML: e,
+});
+const PAGES = [
+  'overview',
+  'notices',
+  'plan',
+  'evidence',
+  'continuity',
+  'forms',
+  'calendar',
+  'assistant',
+  'support',
+  'about',
+];
 let clarificationRenderDeferred = false;
 let pointerDown = false;
 // Timebox changes are reversible planning preferences, never notice facts.
@@ -247,6 +291,7 @@ async function persist() {
     if (account) await account.persist(state);
     else await saveState(state);
     storageFailed = false;
+    return true;
   } catch {
     storageFailed = true;
     toast(
@@ -255,6 +300,7 @@ async function persist() {
         'El navegador no pudo guardar los cambios. Descarga una copia.',
       ),
     );
+    return false;
   }
 }
 let toastTimer;
@@ -370,6 +416,9 @@ function shell(content) {
     plan: t('2. Prepare', '2. Preparar'),
     evidence: t('3. Save receipts', '3. Guardar recibos'),
     continuity: t('Continuity', 'Continuidad'),
+    forms: t('Guided forms', 'Formularios guiados'),
+    calendar: t('Calendar', 'Calendario'),
+    assistant: t('Ask Anchor', 'Pregunta a Anchor'),
     support: t('Get support', 'Obtener ayuda'),
     about: t('About Anchor', 'Acerca de Anchor'),
   };
@@ -379,6 +428,8 @@ function shell(content) {
     ['plan', 'list'],
     ['evidence', 'folder'],
     ['continuity', 'shield'],
+    ['forms', 'file'],
+    ['calendar', 'calendar'],
   ]
     .map(
       ([p, i]) =>
@@ -388,6 +439,7 @@ function shell(content) {
       '',
     )}<div class="nav-label" style="margin-top:26px">${t('HERE TO HELP', 'AQU\xCD PARA AYUDAR')}</div>${[
     ['support', 'heart'],
+    ['assistant', 'spark'],
     ['about', 'info'],
   ]
     .map(
@@ -398,6 +450,294 @@ function shell(content) {
       '',
     )}</nav><div class="side-bottom"><div class="side-note">${icon('shield', 23)}<strong>${t('Your information stays yours.', 'Tu informaci\xF3n te pertenece.')}</strong>${t('Sign in to save across devices. Practice notices and your own letters stay separate.', 'Inicia sesión para guardar en varios dispositivos. Tus avisos y ejemplos están separados.')}</div><div class="side-footer"><span class="dot"></span>${t('Made for peace of mind', 'Creado para tu tranquilidad')}</div></div></aside><div class="main-wrap"><header class="topbar"><div class="topbar-left"><button class="mobile-nav-toggle" data-action="menu" aria-label="${t('Open navigation', 'Abrir navegaci\xF3n')}" aria-expanded="${navOpen}">${icon('menu', 20)}</button><div class="mobile-brand"><img src="./icon.svg" alt="">Anchor</div><div class="breadcrumb">${t('Workspace', 'Espacio')} ${icon('chevron', 11)} <strong>${names[page]}</strong></div></div><div class="top-controls">${syncBadge()}<label class="lang-toggle">${icon('globe', 15)}<select id="language" aria-label="${t('Interface language', 'Idioma de la interfaz')}"><option value="en" ${state.lang === 'en' ? 'selected' : ''}>English</option><option value="es" ${state.lang === 'es' ? 'selected' : ''}>Espa\xF1ol</option></select></label>${accountButton()}</div></header><main id="main" class="content" tabindex="-1">${state.mode === 'demo' ? `<div class="sample-strip">${icon('spark', 14)}<span>${t('Sample workspace \xB7 Fictional notices. Practice freely; your own letters stay separate.', 'Espacio de pr\xE1ctica \xB7 Avisos ficticios. Tus propios avisos se guardan por separado.')}</span><button data-action="switch-mode">${t('Go to my workspace', 'Ir a mi espacio')}${icon('arrow', 11)}</button></div>` : storageFailed ? `<div class="review-warning">${icon('warning', 16)}${t('Changes are not saved in this browser. Download a backup.', 'Los cambios no se guardan en este navegador. Descarga una copia.')}</div>` : ''}${flowNavigation()}${syncAlert()}${content}<footer class="footer"><span>${icon('lock', 11)}${t('Read on your device. Sign in to save your progress.', 'Lectura local. Inicia sesión para guardar tu progreso.')}</span><div class="footer-links"><button data-action="guide">${t('Guide', 'Guía')}</button><button data-action="privacy">${t('Privacy & storage', 'Privacidad')}</button><button data-action="nav" data-page="support">${t('Official resources', 'Recursos oficiales')}${icon('external', 10)}</button></div></footer></main></div></div>`;
 }
+function formsPage() {
+  const notices = workspace().notices;
+  return (
+    head(
+      t('Prepare with a guide.', 'Prepara con una guía.'),
+      t(
+        'Open the official form when it is verified. Work through the request one step at a time.',
+        'Abre el formulario oficial cuando se identifica. Prepara la solicitud paso a paso.',
+      ),
+    ) +
+    (!notices.length
+      ? empty(
+          t('Start with your notice.', 'Empieza con tu aviso.'),
+          t(
+            'A guide stays attached to its original request.',
+            'La guía se conserva con su solicitud original.',
+          ),
+        )
+      : notices
+          .map(
+            (notice) =>
+              `<section class="panel calendar-panel"><h2>${e(notice.title)}</h2><p class="hint">${t('Drafts are preparation only. Check the county’s actual form before signing and submitting.', 'Los borradores son preparación. Revisa el formulario del condado antes de firmar y enviar.')}</p>${(notice.requests.length ? notice.requests : [{ id: null, title: t('Review this notice with a guide', 'Revisar este aviso con una guía') }]).map((request) => `<div class="calendar-event"><div><strong>${e(request.title)}</strong><p>${e(getFormAssistance(notice, request.id).rationale)}</p><button class="button light small" data-action="form-open" data-id="${e(notice.id)}" ${request.id ? `data-task="${e(request.id)}"` : ''}>${t('Open guided preparation', 'Abrir preparación guiada')} →</button></div></div>`).join('')}</section>`,
+          )
+          .join(''))
+  );
+}
+
+function formRecord(context = activeForm) {
+  if (!context || context.owner !== `${accountInfo.user?.id || 'guest'}:${state.mode}`) return null;
+  const notice = noticeById(context.assistance.noticeId);
+  if (!notice) return null;
+  notice.formDrafts ||= [];
+  return notice.formDrafts.find((record) => record.id === context.draft.id) || null;
+}
+
+async function saveActiveForm() {
+  const context = activeForm,
+    record = formRecord(context);
+  if (!record) return;
+  const updates = {};
+  for (const field of modal.querySelectorAll('[data-form-field]'))
+    updates[field.dataset.formField] = field.type === 'checkbox' ? field.checked : field.value;
+  context.draft = updateFormDraft(context.assistance, context.draft, updates);
+  record.draft = context.draft;
+  return persist();
+}
+
+function openForm(noticeId, requestId) {
+  const notice = noticeById(noticeId);
+  if (!notice) return;
+  const assistance = getFormAssistance(notice, requestId);
+  const draft = createFormDraft(assistance);
+  notice.formDrafts ||= [];
+  let record = notice.formDrafts.find((item) => item.id === draft.id);
+  if (!record) {
+    record = { id: draft.id, draft };
+    notice.formDrafts.push(record);
+  }
+  activeForm = {
+    assistance,
+    draft: updateFormDraft(assistance, record.draft, {}),
+    section: 0,
+    previewPage: assistance.sections[0].page,
+    owner: `${accountInfo.user?.id || 'guest'}:${state.mode}`,
+  };
+  showActiveForm();
+}
+
+function showActiveForm() {
+  const record = formRecord();
+  if (!record) return;
+  showModal(
+    modalHead(t('Prepare your requested item', 'Prepara lo solicitado')) +
+      renderFormAssistance({
+        assistance: activeForm.assistance,
+        draft: activeForm.draft,
+        activeSection: activeForm.section,
+        previewPage: activeForm.previewPage,
+        previewPages: activeForm.previewPages,
+        previewLabel: record.filename,
+        hasAttachedForm: Boolean(record.attachmentId),
+        lang: state.lang,
+      }),
+    true,
+  );
+  const form = $('#form-assistance-draft');
+  if (form)
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const saved = await saveActiveForm();
+      const status = $('#form-assist-save-status');
+      if (status)
+        status.textContent = saved
+          ? t(
+              'Draft saved. Nothing has been signed or submitted.',
+              'Borrador guardado. Nada se ha firmado ni enviado.',
+            )
+          : t(
+              'This browser could not save the draft. Download preparation notes to keep it.',
+              'El navegador no pudo guardar el borrador. Descarga las notas para conservarlo.',
+            );
+    });
+  renderActiveFormPage();
+}
+
+async function renderActiveFormPage() {
+  const context = activeForm,
+    record = formRecord(context),
+    canvas = $('#form-preview-canvas');
+  if (!canvas || !record) return;
+  const token = ++formPreviewGeneration;
+  try {
+    const documents = await import('./form-documents.js');
+    let bytes;
+    if (record.attachmentId) {
+      const attached = await readFileAttachment(record.attachmentId);
+      const blob = attached?.blob || attached;
+      if (!blob?.arrayBuffer) throw new Error('Attach the actual form again to preview it.');
+      bytes = new Uint8Array(await blob.arrayBuffer());
+    } else bytes = await documents.loadOfficialForm(context.assistance.form);
+    if (token !== formPreviewGeneration || context !== activeForm || !canvas.isConnected) return;
+    const pages = await documents.renderFormPage(bytes, canvas, context.previewPage);
+    if (token !== formPreviewGeneration || context !== activeForm) return;
+    context.previewPages = pages;
+    context.previewPage = Math.min(pages, context.previewPage);
+    const status = $('#form-preview-status');
+    if (status)
+      status.textContent = record.attachmentId
+        ? t('Your attached form · read locally', 'Tu formulario adjunto · lectura local')
+        : t('Official blank · read locally', 'Formulario oficial · lectura local');
+  } catch (error) {
+    if (token === formPreviewGeneration) {
+      const status = $('#form-preview-status');
+      if (status) status.textContent = error.message;
+    }
+  }
+}
+
+function calendarPage() {
+  const candidates = getCalendarCandidates(workspace().notices, state.lang);
+  return (
+    head(
+      t('Keep your dates in view.', 'Conserva tus fechas a la vista.'),
+      t(
+        'Preview checked dates, then choose what to add to Google Calendar.',
+        'Revisa las fechas verificadas y elige cuáles agregar a Google Calendar.',
+      ),
+      t('YOUR CALENDAR', 'TU CALENDARIO'),
+      false,
+    ) +
+    `<section class="panel calendar-panel"><h2>${t('Checked dates only', 'Solo fechas verificadas')}</h2><p class="body-text">${t('Anchor creates private, all-day reminders with a general title. It sends the dates and reminder text shown here, without your letter, case number, or form answers. It does not read your calendar.', 'Anchor crea recordatorios privados de todo el día. Envía las fechas y texto mostrados aquí, sin el aviso, número de caso o respuestas. No lee tu calendario.')}</p>${state.mode === 'demo' ? `<p class="review-warning">${t('Practice mode: these dates are fictional. Google Calendar writes are available in your personal workspace.', 'Modo de práctica: fechas ficticias. Google Calendar está disponible en tu espacio personal.')}</p>` : ''}<form id="calendar-form">${candidates.map((candidate, index) => `<label class="calendar-event"><input type="checkbox" name="event" value="${index}" checked><span><strong>${e(candidate.summary)}</strong><p>${fmt(candidate.date)} · ${t('All day', 'Todo el día')}</p><p>${e(candidate.description)}</p>${candidate.contextOnly ? `<p class="hint">${t('A context reminder, not a submission deadline.', 'Recordatorio de contexto, no fecha de envío.')}</p>` : ''}</span></label>`).join('')}${!candidates.length ? `<p class="hint">${t('Review a notice and check its dates against the original first. Uncertain or competing dates cannot be added.', 'Revisa un aviso y verifica las fechas originales. No se agregan fechas inciertas o contradictorias.')}</p>` : ''}<div class="button-row gap-top"><button type="button" class="button" data-action="calendar-connect" ${!candidates.length || state.mode === 'demo' || calendarBusy || !calendarIdentityReady ? 'disabled' : ''}>${calendarClient.connected ? t('Review & add selected dates', 'Revisar y agregar fechas') : t('Connect Google Calendar', 'Conectar Google Calendar')}</button><button type="button" class="button light" data-action="calendar-all">${t('Download calendar file', 'Descargar archivo de calendario')}</button>${calendarClient.connected ? `<button type="button" class="link-button" data-action="calendar-disconnect">${t('Disconnect this session', 'Desconectar esta sesión')}</button>` : ''}</div></form><p id="calendar-status" class="hint" role="status">${e(calendarStatus)}</p><details><summary>${t('Google Calendar setup', 'Configuración de Google Calendar')}</summary><p class="hint">${t('Calendar access is separate from Anchor sign-in. Choose the Google account whose calendar you want to use. Disconnect this session forgets Anchor�s temporary token; you can remove the permission in your Google Account. The calendar file works without a connection.', 'El propietario debe habilitar Google Calendar API y agregar calendar.events.owned en Google Auth Platform. El permiso se solicita separado del inicio de sesión. Puedes descargar el archivo de calendario.')}</p></details></section>`
+  );
+}
+
+function prepareCalendar() {
+  if (
+    calendarIdentityReady ||
+    calendarPreparing ||
+    calendarPreparationFailed ||
+    page !== 'calendar'
+  )
+    return;
+  calendarPreparing = true;
+  calendarClient
+    .prepare()
+    .then(() => {
+      calendarIdentityReady = true;
+      calendarStatus = t(
+        'Select dates, then connect Google Calendar when you are ready.',
+        'Selecciona fechas y conecta Google Calendar cuando estés listo.',
+      );
+    })
+    .catch((error) => {
+      calendarPreparationFailed = true;
+      calendarStatus = error.message;
+    })
+    .finally(() => {
+      calendarPreparing = false;
+      if (page === 'calendar') render();
+    });
+}
+
+function previewCalendar(candidates) {
+  calendarPending = { candidates, owner: `${accountInfo.user?.id || 'guest'}:${state.mode}` };
+  showModal(
+    modalHead(t('Review your Google Calendar events', 'Revisa los eventos de Google Calendar')) +
+      `<div class="modal-body"><p class="body-text">${t('These private, all-day reminders will be added to the primary calendar of the Google account you chose. Google’s permission covers viewing and editing owned-calendar events; Anchor only creates the reminders you confirm here.', 'Estos recordatorios privados se agregan al calendario principal de la cuenta de Google elegida. El permiso de Google incluye ver y editar eventos; Anchor solo crea los recordatorios que confirmas.')}</p>${candidates.map((item) => `<div class="calendar-event"><div><strong>${e(item.summary)}</strong><p>${fmt(item.date)} · ${t('All day', 'Todo el día')}</p><p>${e(item.description)}</p></div></div>`).join('')}<div class="button-row gap-top"><button class="button" data-action="calendar-create">${t('Add these events', 'Agregar estos eventos')}</button><button class="button light" data-action="close-modal">${t('Cancel', 'Cancelar')}</button></div><p id="calendar-create-status" class="hint" role="status"></p></div>`,
+  );
+}
+
+function updateNextStep() {
+  if (!nextStepCue || !state) return;
+  const pending = workspace().notices.find((notice) => !notice.reviewed);
+  let cue = null;
+  if (page === 'notices' && selected) {
+    const notice = noticeById(selected);
+    if (notice && !notice.reviewed && notice.supported && planReady(notice))
+      cue = {
+        key: `plan:${accountInfo.user?.id || 'guest'}:${state.mode}:${notice.id}`,
+        selector: '[data-action="confirm-plan"]',
+        title: t(
+          'Your dates are checked. Open your plan.',
+          'Tus fechas están verificadas. Abre tu plan.',
+        ),
+        detail: t(
+          'This organizes your preparation steps.',
+          'Esto organiza tus pasos de preparación.',
+        ),
+      };
+    else if (notice && !notice.reviewed) {
+      const date = notice.deadlines.find((item) => !item.confirmed && !item.excluded);
+      if (date)
+        cue = {
+          key: `date-source:${accountInfo.user?.id || 'guest'}:${state.mode}:${notice.id}:${date.id}`,
+          selector: `.review-card [data-action="source"][data-id="${CSS.escape(notice.id)}"][data-line="${Number(date.line) || 1}"]`,
+          title: t(
+            'Next: check this date in the letter.',
+            'Siguiente: verifica esta fecha en el aviso.',
+          ),
+          detail: t(
+            'Read the original wording. Confirm the date only after checking it.',
+            'Lee el texto original. Confirma la fecha solo después de verificarla.',
+          ),
+          actionLabel: t('Show original wording', 'Mostrar texto original'),
+        };
+      else if (!notice.supported)
+        cue = {
+          key: `manual-guide:${accountInfo.user?.id || 'guest'}:${state.mode}:${notice.id}`,
+          selector: `[data-action="form-open"][data-id="${CSS.escape(notice.id)}"]`,
+          title: t(
+            'Next: work through this request with a guide.',
+            'Siguiente: prepara esta solicitud con una guía.',
+          ),
+          detail: t(
+            'Use the original agency instructions; this notice needs human review.',
+            'Usa las instrucciones originales; este aviso necesita revisión humana.',
+          ),
+        };
+    }
+  } else if (pending && ['overview', 'notices'].includes(page))
+    cue = {
+      key: `review:${accountInfo.user?.id || 'guest'}:${state.mode}:${pending.id}`,
+      selector: `[data-action="review"][data-id="${CSS.escape(pending.id)}"]`,
+      title: t('Start here: review this notice.', 'Empieza aquí: revisa este aviso.'),
+      detail: t(
+        'Check the dates and requests against the original.',
+        'Verifica las fechas y solicitudes originales.',
+      ),
+    };
+  else if (page === 'plan') {
+    const request = requests().find((item) => item.status !== 'done' && item.notice.reviewed);
+    if (request)
+      cue = {
+        key: `prepare:${accountInfo.user?.id || 'guest'}:${state.mode}:${request.notice.id}:${request.id}`,
+        selector: `[data-action="form-open"][data-id="${CSS.escape(request.notice.id)}"][data-task="${CSS.escape(request.id)}"]`,
+        title: t('Next: prepare this requested item.', 'Siguiente: prepara este elemento.'),
+        detail: t(
+          'Open its guided steps and any verified official form.',
+          'Abre la guía y el formulario oficial identificado.',
+        ),
+      };
+    else if (requests().length && completed() === requests().length)
+      cue = {
+        key: `receipt:${accountInfo.user?.id || 'guest'}:${state.mode}:${workspace()
+          .notices.map((item) => item.id)
+          .join(':')}`,
+        selector: '[data-action="receipt"]',
+        title: t(
+          'After you submit, save your confirmation.',
+          'Después de enviar, guarda la confirmación.',
+        ),
+        detail: t(
+          'Use the official channel, then record what you actually sent.',
+          'Usa el canal oficial y registra lo que enviaste.',
+        ),
+      };
+  } else if (page === 'overview' && workspace().notices.length && !pending)
+    cue = {
+      key: `open-plan:${accountInfo.user?.id || 'guest'}:${state.mode}:${workspace()
+        .notices.map((item) => item.id)
+        .join(':')}`,
+      selector: '[data-action="nav"][data-page="plan"].button',
+      title: t('Next: open your preparation plan.', 'Siguiente: abre tu plan de preparación.'),
+    };
+  nextStepCue.update(cue);
+}
+
 function head(title, subtitle, eyebrow = t('ONE STEP AT A TIME', 'PASO A PASO'), button = true) {
   return `<div class="page-head"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1><p class="page-sub">${subtitle}</p></div>${button ? `<button class="button" data-action="import">${icon('plus', 16)}${t('Add a notice', 'Agregar aviso')}</button>` : ''}</div>`;
 }
@@ -408,8 +748,11 @@ function noticeRow(n) {
   return `<div class="notice-row">${thumb()}<div class="notice-row-info"><h3>${e(n.title)}</h3><p>${e(n.formCode || t('Manual review', 'Revisi\xF3n manual'))} \xB7 ${e(COUNTIES[n.county]?.name || t('County not identified', 'Condado no identificado'))}</p>${statusTag(n)}</div><button class="arrow-button" data-action="review" data-id="${e(n.id)}" aria-label="${e(t('Review ', 'Revisar ') + n.title)}">${icon('arrow', 13)}</button></div>`;
 }
 function taskLine(r) {
-  return `<div class="task-line ${r.status === 'done' ? 'completed' : ''}"><button class="task-check ${r.status === 'done' ? 'done' : ''}" data-action="task" data-id="${e(r.notice.id)}" data-task="${e(r.id)}" aria-label="${e((r.status === 'done' ? t('Mark unprepared: ', 'Marcar sin preparar: ') : t('Mark prepared: ', 'Marcar preparado: ')) + r.title)}" aria-pressed="${r.status === 'done'}">${r.status === 'done' ? icon('check', 12) : ''}</button><div class="task-text"><h3>${e(r.title)}</h3><p>${e(r.notice.title)}${r.status === 'done' ? ` \xB7 ${t('Prepared by you', 'Preparado por ti')}` : ''}</p></div><button class="link-button" data-action="source" data-id="${e(r.notice.id)}" data-line="${r.line || 1}">${t('See in letter', 'Ver en el aviso')}${icon('link', 11)}</button></div>`;
+  const help = getFormAssistance(r.notice, r.id);
+  const next = help.checklist[0];
+  return `<div class="task-line ${r.status === 'done' ? 'completed' : ''}"><button class="task-check ${r.status === 'done' ? 'done' : ''}" data-action="task" data-id="${e(r.notice.id)}" data-task="${e(r.id)}" aria-label="${e((r.status === 'done' ? t('Mark unprepared: ', 'Marcar sin preparar: ') : t('Mark prepared: ', 'Marcar preparado: ')) + r.title)}" aria-pressed="${r.status === 'done'}">${r.status === 'done' ? icon('check', 12) : ''}</button><div class="task-text"><h3>${e(r.title)}</h3><p>${e(r.notice.title)}${r.status === 'done' ? ` · ${t('Prepared by you', 'Preparado por ti')}` : ''}</p><p class="task-detail">${e(next?.detail || r.description || '')}</p><div class="task-assist-actions"><button class="button light small" data-action="form-open" data-id="${e(r.notice.id)}" data-task="${e(r.id)}">${icon('file', 12)}${help.form ? t('Open form & guide', 'Abrir formulario y guía') : t('Prepare with a guide', 'Preparar con una guía')}${icon('arrow', 12)}</button><button class="link-button" data-action="source" data-id="${e(r.notice.id)}" data-line="${r.line || 1}">${t('See in letter', 'Ver en el aviso')}${icon('link', 11)}</button></div></div></div>`;
 }
+
 function overview() {
   const notices = workspace().notices;
   if (!notices.length)
@@ -441,7 +784,7 @@ function overview() {
         'Menos estr\xE9s con el papeleo. M\xE1s espacio para lo importante.',
       ),
     ) +
-    `<div class="dashboard-top"><section class="panel next-card"><div><div class="eyebrow">${icon('leaf', 13)}${t('YOUR NEXT CHAPTER', 'TU SIGUIENTE PASO')}</div><h2>${next.reviewed ? t('You have a plan.<br>Let\u2019s keep moving.', 'Ya tienes un plan.<br>Sigamos adelante.') : t('A letter today.<br>A clear path forward.', 'Un aviso hoy.<br>Un camino claro.')}</h2><p>${next.reviewed ? t('Your next steps are together. Prepare what\u2019s requested, then use the official submission channel.', 'Tus siguientes pasos est\xE1n organizados. Prepara lo solicitado y usa el canal oficial.') : t('Your notice is here. Let\u2019s check what it asks for and take it one step at a time.', 'Tu aviso est\xE1 aqu\xED. Revisemos qu\xE9 solicita, paso a paso.')}</p></div><div class="button-row"><button class="button gold" data-action="${next.reviewed ? 'nav' : 'review'}" ${next.reviewed ? 'data-page="plan"' : `data-id="${e(next.id)}"`}>${t(next.reviewed ? 'Open my action plan' : 'Review my notice', next.reviewed ? 'Abrir mi plan' : 'Revisar mi aviso')}${icon('arrow', 14)}</button><button class="plain-link" data-action="nav" data-page="about">${t('How it works', 'C\xF3mo funciona')}</button></div>${illustration()}</section><section class="panel deadline-panel"><div class="deadline-title">${t('On the horizon', 'Lo que viene')}${icon('calendar', 17)}</div>${soon ? `<div class="calendar-large"><div class="calendar-date"><small>${month(soon.date)}</small><strong>${Number(soon.date.slice(-2))}</strong></div><div><h3>${label(soon)}</h3><p>${days < 0 ? t(`${Math.abs(days)} days past date`, `${Math.abs(days)} d\xEDas despu\xE9s`) : days === 0 ? t('Date is today', 'La fecha es hoy') : t(`In ${days} days`, `En ${days} d\xEDas`)}${state.mode === 'demo' ? t(' \xB7 sample clock', ' \xB7 fecha de pr\xE1ctica') : ''}</p></div></div><p class="deadline-detail">${soon.confirmed ? t('You checked this date against your letter. Add it to your calendar so it stays in view.', 'Verificaste esta fecha en tu aviso. Puedes agregarla al calendario.') : t('This date was found in your letter. Check the original before relying on it.', 'Esta fecha se encontr\xF3 en el aviso. Verifica el original antes de usarla.')}</p><div class="deadline-footer"><span class="tag ${soon.confirmed ? 'green' : 'amber'}">${soon.confirmed ? icon('check', 10) : icon('eye', 10)}${soon.confirmed ? t('Checked by you', 'Verificada por ti') : t('Check the date', 'Verificar fecha')}</span><button class="link-button" data-action="${soon.confirmed ? 'calendar' : 'source'}" data-id="${e(soon.notice.id)}" data-line="${soon.line || 1}">${soon.confirmed ? t('Save to calendar', 'Guardar en calendario') : t('Check source', 'Ver el original')}${icon('arrow', 12)}</button></div>` : `<div class="empty-state" style="padding:25px 0"><p>${t('No readable dates yet. Open the notice and check it with a trusted helper.', 'No hay fechas legibles. Revisa el aviso con alguien de confianza.')}</p></div>`}</section></div><div class="dashboard-middle"><section class="panel"><div class="panel-head"><h2>${t('Your letters, together', 'Tus avisos, juntos')}</h2><button class="link-button" data-action="nav" data-page="notices">${t('View all', 'Ver todos')}${icon('arrow', 12)}</button></div><div class="panel-body">${notices.slice(0, 2).map(noticeRow).join('')}<p class="hint">${icon('link', 10)} ${t('Every next step links back to the letter it came from.', 'Cada paso est\xE1 vinculado al aviso del que proviene.')}</p></div></section><section class="panel"><div class="panel-head"><h2>${t('Small steps. Real progress.', 'Peque\xF1os pasos. Progreso real.')}</h2><span class="tag gray">${completed()}/${all.length}</span></div><div class="panel-body"><div class="task-progress" role="progressbar" aria-valuenow="${progress()}" aria-valuemin="0" aria-valuemax="100" aria-label="${t('Preparation progress', 'Progreso de preparaci\xF3n')}"><span style="width:${progress()}%"></span></div>${all.slice(0, 3).map(taskLine).join('')}${!all.length ? `<p class="hint">${t('Review your notice to identify the next steps.', 'Revisa tu aviso para identificar los siguientes pasos.')}</p>` : ''}<button class="link-button gap-top" data-action="nav" data-page="plan">${t('See my full plan', 'Ver mi plan completo')}${icon('arrow', 12)}</button></div></section></div><section class="journey-strip"><div class="journey-icon">${icon('heart', 22)}</div><div class="journey-copy"><h3>${t('You don\u2019t have to figure it out alone.', 'No tienes que resolverlo sin ayuda.')}</h3><p>${t('Take a clear summary to your county worker or a trusted benefits navigator.', 'Lleva un resumen claro a tu trabajador del condado o a un asesor de beneficios.')}</p></div><button class="button" data-action="handoff">${icon('download', 13)}${t('Make a handoff', 'Crear un resumen')}${icon('arrow', 12)}</button></section>`
+    `<div class="dashboard-top"><section class="panel next-card"><div><div class="eyebrow">${icon('leaf', 13)}${t('YOUR NEXT CHAPTER', 'TU SIGUIENTE PASO')}</div><h2>${next.reviewed ? t('You have a plan.<br>Let\u2019s keep moving.', 'Ya tienes un plan.<br>Sigamos adelante.') : t('A letter today.<br>A clear path forward.', 'Un aviso hoy.<br>Un camino claro.')}</h2><p>${next.reviewed ? t('Your next steps are together. Prepare what\u2019s requested, then use the official submission channel.', 'Tus siguientes pasos est\xE1n organizados. Prepara lo solicitado y usa el canal oficial.') : t('Your notice is here. Let\u2019s check what it asks for and take it one step at a time.', 'Tu aviso est\xE1 aqu\xED. Revisemos qu\xE9 solicita, paso a paso.')}</p></div><div class="button-row"><button class="button gold" data-action="${next.reviewed ? 'nav' : 'review'}" ${next.reviewed ? 'data-page="plan"' : `data-id="${e(next.id)}"`}>${t(next.reviewed ? 'Open my action plan' : 'Review my notice', next.reviewed ? 'Abrir mi plan' : 'Revisar mi aviso')}${icon('arrow', 14)}</button><button class="plain-link" data-action="nav" data-page="about">${t('How it works', 'C\xF3mo funciona')}</button></div>${illustration()}</section><section class="panel deadline-panel"><div class="deadline-title">${t('On the horizon', 'Lo que viene')}${icon('calendar', 17)}</div>${soon ? `<div class="calendar-large"><div class="calendar-date"><small>${month(soon.date)}</small><strong>${Number(soon.date.slice(-2))}</strong></div><div><h3>${label(soon)}</h3><p>${days < 0 ? t(`${Math.abs(days)} days past date`, `${Math.abs(days)} d\xEDas despu\xE9s`) : days === 0 ? t('Date is today', 'La fecha es hoy') : t(`In ${days} days`, `En ${days} d\xEDas`)}${state.mode === 'demo' ? t(' \xB7 sample clock', ' \xB7 fecha de pr\xE1ctica') : ''}</p></div></div><p class="deadline-detail">${soon.confirmed ? t('You checked this date against your letter. Add it to your calendar so it stays in view.', 'Verificaste esta fecha en tu aviso. Puedes agregarla al calendario.') : t('This date was found in your letter. Check the original before relying on it.', 'Esta fecha se encontr\xF3 en el aviso. Verifica el original antes de usarla.')}</p><div class="deadline-footer"><span class="tag ${soon.confirmed ? 'green' : 'amber'}">${soon.confirmed ? icon('check', 10) : icon('eye', 10)}${soon.confirmed ? t('Checked by you', 'Verificada por ti') : t('Check the date', 'Verificar fecha')}</span><button class="link-button" data-action="${soon.confirmed ? 'calendar-preview' : 'source'}" data-id="${e(soon.notice.id)}" data-line="${soon.line || 1}">${soon.confirmed ? t('Save to calendar', 'Guardar en calendario') : t('Check source', 'Ver el original')}${icon('arrow', 12)}</button></div>` : `<div class="empty-state" style="padding:25px 0"><p>${t('No readable dates yet. Open the notice and check it with a trusted helper.', 'No hay fechas legibles. Revisa el aviso con alguien de confianza.')}</p></div>`}</section></div><div class="dashboard-middle"><section class="panel"><div class="panel-head"><h2>${t('Your letters, together', 'Tus avisos, juntos')}</h2><button class="link-button" data-action="nav" data-page="notices">${t('View all', 'Ver todos')}${icon('arrow', 12)}</button></div><div class="panel-body">${notices.slice(0, 2).map(noticeRow).join('')}<p class="hint">${icon('link', 10)} ${t('Every next step links back to the letter it came from.', 'Cada paso est\xE1 vinculado al aviso del que proviene.')}</p></div></section><section class="panel"><div class="panel-head"><h2>${t('Small steps. Real progress.', 'Peque\xF1os pasos. Progreso real.')}</h2><span class="tag gray">${completed()}/${all.length}</span></div><div class="panel-body"><div class="task-progress" role="progressbar" aria-valuenow="${progress()}" aria-valuemin="0" aria-valuemax="100" aria-label="${t('Preparation progress', 'Progreso de preparaci\xF3n')}"><span style="width:${progress()}%"></span></div>${all.slice(0, 3).map(taskLine).join('')}${!all.length ? `<p class="hint">${t('Review your notice to identify the next steps.', 'Revisa tu aviso para identificar los siguientes pasos.')}</p>` : ''}<button class="link-button gap-top" data-action="nav" data-page="plan">${t('See my full plan', 'Ver mi plan completo')}${icon('arrow', 12)}</button></div></section></div><section class="journey-strip"><div class="journey-icon">${icon('heart', 22)}</div><div class="journey-copy"><h3>${t('You don\u2019t have to figure it out alone.', 'No tienes que resolverlo sin ayuda.')}</h3><p>${t('Take a clear summary to your county worker or a trusted benefits navigator.', 'Lleva un resumen claro a tu trabajador del condado o a un asesor de beneficios.')}</p></div><button class="button" data-action="handoff">${icon('download', 13)}${t('Make a handoff', 'Crear un resumen')}${icon('arrow', 12)}</button></section>`
   );
 }
 function noticeList() {
@@ -492,7 +835,7 @@ function review() {
       )
       .join(
         '',
-      )}</div></div><div class="source-bottom">${icon('lock', 11)} ${t('Original wording is preserved. If OCR missed something, use the original file to check it.', 'Se conserva el texto original. Si el reconocimiento omiti\xF3 algo, consulta el archivo original.')}${n.originalAttachmentId ? ` <button class="link-button" data-action="attachment" data-attachment="${e(n.originalAttachmentId)}">${t('Download original file', 'Descargar archivo original')}</button>` : ''}</div></section><div class="review-stack">${!n.supported ? `<div class="review-warning">${icon('warning', 18)}<div><strong>${t('This notice needs a person\u2019s review.', 'Este aviso requiere revisi\xF3n humana.')}</strong><p>${t('Anchor could not confidently recognize a supported CalFresh notice. Take the original to your county or a trusted navigator.', 'Anchor no reconoci\xF3 un aviso de CalFresh compatible. Lleva el original al condado o a un asesor.')}</p></div></div>` : ''}<section class="panel review-card"><div class="eyebrow">${t('01 \xB7 DATES, KEPT DISTINCT', '01 \xB7 FECHAS POR SEPARADO')}</div><h2>${t('What\u2019s coming up', 'Lo que viene')}</h2><p>${t('A submission date and the end of benefits are different. Check each one in the letter.', 'La fecha de env\xEDo y el fin de beneficios son distintos. Verifica cada fecha en el aviso.')}</p>${n.deadlines.length ? n.deadlines.map((d) => `<div class="fact"><div class="fact-head"><span class="fact-title">${label(d)}</span><span class="tag ${d.excluded ? 'gray' : d.confirmed ? 'green' : 'amber'}">${d.excluded ? t('Does not apply', 'No corresponde') : d.confirmed ? t('Checked', 'Verificada') : d.needsReview ? t('Needs clarification', 'Requiere aclaraci\xF3n') : t('Check original', 'Verificar original')}</span></div><div class="fact-date">${d.date ? fmt(d.date) : e(d.raw)}</div><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${d.line}">${icon('link', 11)}${t('Show in the letter', 'Mostrar en el aviso')}</button><blockquote>${e(d.quote)}</blockquote><button class="link-button" data-action="edit-date" data-id="${e(n.id)}" data-date="${e(d.id)}">${t('Correct this date', 'Corregir esta fecha')}</button>${d.needsReview || d.editing ? `<label class="hint" for="date-${e(d.id)}">${t('Enter the date you verified in the original or with the county.', 'Ingresa la fecha que verificaste en el original o con el condado.')}</label><div><input class="date-input" id="date-${e(d.id)}" type="date" data-notice="${e(n.id)}" data-date="${e(d.id)}" value="${e(d.date || '')}" aria-label="${e(label(d))}"></div>` : ''}<label class="confirm-label"><input type="checkbox" data-confirm="${e(d.id)}" data-notice="${e(n.id)}" ${d.confirmed ? 'checked' : ''} ${!d.date ? 'disabled' : ''}>${d.needsReview ? t('I confirmed this date and resolved the ambiguity.', 'Confirm\xE9 esta fecha y aclar\xE9 la ambig\xFCedad.') : t('I checked this date against the original notice.', 'Verifiqu\xE9 esta fecha en el aviso original.')}</label>${competing ? `<label class="confirm-label"><input type="checkbox" data-exclude="${e(d.id)}" data-notice="${e(n.id)}" ${d.excluded ? 'checked' : ''}>${t('This date does not apply, after clarification.', 'Esta fecha no corresponde, despu\xE9s de aclararlo.')}</label>` : ''}${d.userEntered ? `<p class="hint">${t('Date corrected by you; original wording is preserved above.', 'Fecha corregida por ti; se conserva el texto original arriba.')}</p>` : ''}</div>`).join('') : `<p class="hint">${t('No explicit, readable dates were identified. Ask your county to clarify any timing.', 'No se identificaron fechas expl\xEDcitas y legibles. Consulta el plazo con el condado.')}</p>`}${competing ? `<div class="review-warning gap-top">${icon('warning', 16)}<div><strong>${t('Competing dates need clarification.', 'Las fechas contradictorias requieren aclaraci\xF3n.')}</strong><p>${t('Keep both original dates visible. Ask the county which applies, then record the clarification before using or exporting the plan.', 'Conserva ambas fechas originales. Consulta al condado cu\xE1l corresponde y registra la aclaraci\xF3n antes de usar o exportar el plan.')}</p></div></div><label class="hint" for="clarification">${t('What did you clarify, and how?', '\xBFQu\xE9 aclaraste y c\xF3mo?')}</label><textarea id="clarification" class="clarify-text" data-clarify="${e(n.id)}" maxlength="2000" placeholder="${t('e.g. County worker clarified the applicable date on\u2026', 'p. ej. El trabajador del condado aclar\xF3 la fecha el\u2026')}">${e(n.clarification || '')}</textarea>` : ''}</section><section class="panel review-card"><div class="eyebrow">${t('02 \xB7 WHAT THE LETTER ASKS', '02 \xB7 LO QUE PIDE EL AVISO')}</div><h2>${t('Your next steps', 'Tus siguientes pasos')}</h2>${n.requests.length ? n.requests.map((r) => `<div class="request-item">${icon(r.kind === 'document' ? 'folder' : r.kind === 'interview' ? 'phone' : 'file', 17)}<div><strong>${e(r.title)}</strong><p>${e(r.description)}</p><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${r.line}">${t('Check the source', 'Verificar el original')}${icon('link', 11)}</button></div></div>`).join('') : `<p class="hint">${t('No definite requests could be read. Unmarked checkboxes are not counted as requests.', 'No se pudieron leer solicitudes claras. Las casillas sin marcar no se cuentan como solicitudes.')}</p>`}${n.warnings.length ? `<div class="review-warning gap-top">${icon('eye', 17)}<div><strong>${t('A little more attention needed', 'Se necesita un poco m\xE1s de atenci\xF3n')}</strong><ul class="warning-list">${n.warnings.map((w) => `<li>${e(w)}</li>`).join('')}</ul></div></div>` : ''}<div class="review-actions"><button class="button" data-action="confirm-plan" data-id="${e(n.id)}" ${!n.supported || !datesOK ? 'disabled' : ''}>${icon('check', 14)}${t('Use this action plan', 'Usar este plan')}</button><button class="button light" data-action="nav" data-page="support">${t('Ask for help', 'Pedir ayuda')}</button></div><p class="hint">${t('Confirm each date above before using the plan. Reviewing a plan does not submit anything to the county.', 'Verifica cada fecha antes de usar el plan. Revisarlo no env\xEDa nada al condado.')}</p></section></div></div>`
+      )}</div></div><div class="source-bottom">${icon('lock', 11)} ${t('Original wording is preserved. If OCR missed something, use the original file to check it.', 'Se conserva el texto original. Si el reconocimiento omiti\xF3 algo, consulta el archivo original.')}${n.originalAttachmentId ? ` <button class="link-button" data-action="attachment" data-attachment="${e(n.originalAttachmentId)}">${t('Download original file', 'Descargar archivo original')}</button>` : ''}</div></section><div class="review-stack">${!n.supported ? `<div class="review-warning">${icon('warning', 18)}<div><strong>${t('This notice needs a person\u2019s review.', 'Este aviso requiere revisi\xF3n humana.')}</strong><p>${t('Anchor could not confidently recognize a supported CalFresh notice. Take the original to your county or a trusted navigator.', 'Anchor no reconoci\xF3 un aviso de CalFresh compatible. Lleva el original al condado o a un asesor.')}</p></div></div>` : ''}<section class="panel review-card"><div class="eyebrow">${t('01 \xB7 DATES, KEPT DISTINCT', '01 \xB7 FECHAS POR SEPARADO')}</div><h2>${t('What\u2019s coming up', 'Lo que viene')}</h2><p>${t('A submission date and the end of benefits are different. Check each one in the letter.', 'La fecha de env\xEDo y el fin de beneficios son distintos. Verifica cada fecha en el aviso.')}</p>${n.deadlines.length ? n.deadlines.map((d) => `<div class="fact"><div class="fact-head"><span class="fact-title">${label(d)}</span><span class="tag ${d.excluded ? 'gray' : d.confirmed ? 'green' : 'amber'}">${d.excluded ? t('Does not apply', 'No corresponde') : d.confirmed ? t('Checked', 'Verificada') : d.needsReview ? t('Needs clarification', 'Requiere aclaraci\xF3n') : t('Check original', 'Verificar original')}</span></div><div class="fact-date">${d.date ? fmt(d.date) : e(d.raw)}</div><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${d.line}">${icon('link', 11)}${t('Show in the letter', 'Mostrar en el aviso')}</button><blockquote>${e(d.quote)}</blockquote><button class="link-button" data-action="edit-date" data-id="${e(n.id)}" data-date="${e(d.id)}">${t('Correct this date', 'Corregir esta fecha')}</button>${d.needsReview || d.editing ? `<label class="hint" for="date-${e(d.id)}">${t('Enter the date you verified in the original or with the county.', 'Ingresa la fecha que verificaste en el original o con el condado.')}</label><div><input class="date-input" id="date-${e(d.id)}" type="date" data-notice="${e(n.id)}" data-date="${e(d.id)}" value="${e(d.date || '')}" aria-label="${e(label(d))}"></div>` : ''}<label class="confirm-label"><input type="checkbox" data-confirm="${e(d.id)}" data-notice="${e(n.id)}" ${d.confirmed ? 'checked' : ''} ${!d.date ? 'disabled' : ''}>${d.needsReview ? t('I confirmed this date and resolved the ambiguity.', 'Confirm\xE9 esta fecha y aclar\xE9 la ambig\xFCedad.') : t('I checked this date against the original notice.', 'Verifiqu\xE9 esta fecha en el aviso original.')}</label>${competing ? `<label class="confirm-label"><input type="checkbox" data-exclude="${e(d.id)}" data-notice="${e(n.id)}" ${d.excluded ? 'checked' : ''}>${t('This date does not apply, after clarification.', 'Esta fecha no corresponde, despu\xE9s de aclararlo.')}</label>` : ''}${d.userEntered ? `<p class="hint">${t('Date corrected by you; original wording is preserved above.', 'Fecha corregida por ti; se conserva el texto original arriba.')}</p>` : ''}</div>`).join('') : `<p class="hint">${t('No explicit, readable dates were identified. Ask your county to clarify any timing.', 'No se identificaron fechas expl\xEDcitas y legibles. Consulta el plazo con el condado.')}</p>`}${competing ? `<div class="review-warning gap-top">${icon('warning', 16)}<div><strong>${t('Competing dates need clarification.', 'Las fechas contradictorias requieren aclaraci\xF3n.')}</strong><p>${t('Keep both original dates visible. Ask the county which applies, then record the clarification before using or exporting the plan.', 'Conserva ambas fechas originales. Consulta al condado cu\xE1l corresponde y registra la aclaraci\xF3n antes de usar o exportar el plan.')}</p></div></div><label class="hint" for="clarification">${t('What did you clarify, and how?', '\xBFQu\xE9 aclaraste y c\xF3mo?')}</label><textarea id="clarification" class="clarify-text" data-clarify="${e(n.id)}" maxlength="2000" placeholder="${t('e.g. County worker clarified the applicable date on\u2026', 'p. ej. El trabajador del condado aclar\xF3 la fecha el\u2026')}">${e(n.clarification || '')}</textarea>` : ''}</section><section class="panel review-card"><div class="eyebrow">${t('02 \xB7 WHAT THE LETTER ASKS', '02 \xB7 LO QUE PIDE EL AVISO')}</div><h2>${t('Your next steps', 'Tus siguientes pasos')}</h2>${n.requests.length ? n.requests.map((r) => `<div class="request-item">${icon(r.kind === 'document' ? 'folder' : r.kind === 'interview' ? 'phone' : 'file', 17)}<div><strong>${e(r.title)}</strong><p>${e(r.description)}</p><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${r.line}">${t('Check the source', 'Verificar el original')}${icon('link', 11)}</button><div class="task-assist-actions"><button class="button light small" data-action="form-open" data-id="${e(n.id)}" data-task="${e(r.id)}">${t('Prepare with a guide', 'Preparar con una guía')}${icon('arrow', 12)}</button></div></div></div>`).join('') : `<p class="hint">${t('No definite requests could be read. Unmarked checkboxes are not counted as requests.', 'No se pudieron leer solicitudes claras. Las casillas sin marcar no se cuentan como solicitudes.')}</p><button class="button light small" data-action="form-open" data-id="${e(n.id)}">${t('Prepare with a guide', 'Preparar con una gu�a')}</button>`}${n.warnings.length ? `<div class="review-warning gap-top">${icon('eye', 17)}<div><strong>${t('A little more attention needed', 'Se necesita un poco m\xE1s de atenci\xF3n')}</strong><ul class="warning-list">${n.warnings.map((w) => `<li>${e(w)}</li>`).join('')}</ul></div></div>` : ''}<div class="review-actions"><button class="button" data-action="confirm-plan" data-id="${e(n.id)}" ${!n.supported || !datesOK ? 'disabled' : ''}>${icon('check', 14)}${t('Use this action plan', 'Usar este plan')}</button><button class="button light" data-action="nav" data-page="support">${t('Ask for help', 'Pedir ayuda')}</button></div><p class="hint">${t('Confirm each date above before using the plan. Reviewing a plan does not submit anything to the county.', 'Verifica cada fecha antes de usar el plan. Revisarlo no env\xEDa nada al condado.')}</p></section></div></div>`
   );
 }
 function actionPlan() {
@@ -533,7 +876,7 @@ function actionPlan() {
           `<div class="conflict-card">${icon('warning', 19)}<div><h3>${e(c.title)}</h3><p>${e(c.description)}</p><button class="link-button" data-action="review" data-id="${e(c.noticeIds?.[0] || ns[0].id)}">${t('Compare with the original', 'Comparar con el original')}${icon('arrow', 12)}</button></div></div>`,
       )
       .join('') +
-    `<div class="document-layout"><section class="panel tasks-panel"><div class="panel-head"><h2>${t('Your preparation checklist', 'Tu lista de preparaci\xF3n')}</h2><span class="tag green">${done}/${all.length} ${t('prepared', 'preparados')}</span></div><div class="panel-body"><div class="progress-info"><span>${t('Small steps add up.', 'Los peque\xF1os pasos cuentan.')}</span><span>${progress()}%</span></div><div class="task-progress"><span style="width:${progress()}%"></span></div>${all.map(taskLine).join('')}${!all.length ? `<p class="hint">${t('Open the notice and ask a navigator to help identify its requests.', 'Abre el aviso y pide ayuda para identificar sus solicitudes.')}</p>` : ''}<div class="review-warning gap-top">${icon('info', 16)}<span>${t('A checkmark means you prepared the item. Keep a submission record separately; the county determines whether it is accepted.', 'Una marca indica que preparaste el documento. Guarda un registro de env\xEDo por separado; el condado decide si lo acepta.')}</span></div><div class="button-row gap-top"><button class="button" data-action="receipt">${icon('plus', 13)}${t('Record a submission', 'Registrar un env\xEDo')}</button><button class="button light" data-action="calendar-all">${icon('calendar', 14)}${t('Export checked dates', 'Exportar fechas verificadas')}</button></div></div></section><aside class="panel stepper"><h3>${t('From letter to follow-through', 'Del aviso al seguimiento')}</h3>${[
+    `<div class="document-layout"><section class="panel tasks-panel"><div class="panel-head"><h2>${t('Your preparation checklist', 'Tu lista de preparaci\xF3n')}</h2><span class="tag green">${done}/${all.length} ${t('prepared', 'preparados')}</span></div><div class="panel-body"><div class="progress-info"><span>${t('Small steps add up.', 'Los peque\xF1os pasos cuentan.')}</span><span>${progress()}%</span></div><div class="task-progress"><span style="width:${progress()}%"></span></div>${all.map(taskLine).join('')}${!all.length ? `<p class="hint">${t('Open the notice and ask a navigator to help identify its requests.', 'Abre el aviso y pide ayuda para identificar sus solicitudes.')}</p>` : ''}<div class="review-warning gap-top">${icon('info', 16)}<span>${t('A checkmark means you prepared the item. Keep a submission record separately; the county determines whether it is accepted.', 'Una marca indica que preparaste el documento. Guarda un registro de env\xEDo por separado; el condado decide si lo acepta.')}</span></div><div class="button-row gap-top"><button class="button" data-action="receipt">${icon('plus', 13)}${t('Record a submission', 'Registrar un env\xEDo')}</button><button class="button light" data-action="nav" data-page="calendar">${icon('calendar', 14)}${t('Google Calendar', 'Google Calendar')}</button><button class="button light" data-action="calendar-all">${icon('calendar', 14)}${t('Export checked dates', 'Exportar fechas verificadas')}</button></div></div></section><aside class="panel stepper"><h3>${t('From letter to follow-through', 'Del aviso al seguimiento')}</h3>${[
       [
         t('Understand the letter', 'Entender el aviso'),
         t('Check the exact dates and requests.', 'Verifica las fechas y solicitudes.'),
@@ -628,7 +971,7 @@ function about() {
     `<section class="panel about-hero"><div class="eyebrow">${t('WHY ANCHOR EXISTS', 'POR QU\xC9 EXISTE ANCHOR')}</div><h2>${t('Essential support shouldn\u2019t get lost in the paperwork.', 'El apoyo esencial no deber\xEDa perderse entre papeles.')}</h2><p>${t('Anchor helps you understand a benefit letter, check its dates and requests, prepare your next steps, and preserve a record of what you send. Every extracted step has a connection to the original text.', 'Anchor te ayuda a entender un aviso de beneficios, verificar sus fechas y solicitudes, preparar los siguientes pasos y conservar un registro de lo que env\xEDas. Cada paso identificado se vincula con el texto original.')}</p></section><div class="about-grid"><section class="panel about-card">${icon('eye', 24)}<h3>${t('See where it came from.', 'Consulta de d\xF3nde proviene.')}</h3><p>${t('A date or task links to its exact line in the letter. Uncertainty stays visible until you resolve it.', 'Cada fecha o tarea se vincula a una l\xEDnea del aviso. La incertidumbre queda visible hasta que la aclares.')}</p></section><section class="panel about-card">${icon('lock', 24)}<h3>${t('Stay in control.', 'Mant\xE9n el control.')}</h3><p>${t('PDFs and images are read locally. Sign in to save letters, progress, originals, and receipts privately to your account. Guest records stay on this device.', 'Los PDFs e imágenes se leen localmente. Inicia sesión para guardar avisos, progreso, originales y recibos en tu cuenta privada. Los datos de invitado quedan aquí.')}</p></section><section class="panel about-card">${icon('heart', 24)}<h3>${t('Get a human answer.', 'Obt\xE9n una respuesta humana.')}</h3><p>${t('Make a handoff with the original wording, questions, and submission records. A county worker can help clarify what the app cannot.', 'Crea un resumen con el texto original, preguntas y registros de env\xEDo. Un trabajador del condado puede aclarar lo que la aplicaci\xF3n no puede.')}</p></section></div><section class="panel settings-list"><h2 style="font-size:18px;margin-bottom:5px">${t('Your workspace, your choice.', 'Tu espacio, tu decisi\xF3n.')}</h2><div class="setting"><div><h3>${t('Practice with fictional notices', 'Practicar con avisos ficticios')}</h3><p>${t('Explore the full workflow in a separate sample workspace. Dates in the sample use an October 9, 2026 reference clock.', 'Explora todo el proceso en un espacio de pr\xE1ctica separado. Las fechas de pr\xE1ctica usan el 9 de octubre de 2026 como referencia.')}</p></div><button class="button light small" data-action="switch-mode">${state.mode === 'demo' ? t('Go to my workspace', 'Ir a mi espacio') : t('Explore the sample', 'Explorar el ejemplo')}</button></div><div class="setting"><div><h3>${t('Take a copy with you', 'Conservar una copia')}</h3><p>${t('Download your workspace text and progress as a JSON backup. Receipt files are separate; download important originals too.', 'Descarga el texto y progreso como copia JSON. Los recibos se guardan por separado; descarga tambi\xE9n los originales importantes.')}</p></div><button class="button light small" data-action="backup">${icon('download', 13)}${t('Download backup', 'Descargar copia')}</button></div><div class="setting"><div><h3>${t('Read the processing boundaries', 'Consultar los l\xEDmites')}</h3><p>${t('This prototype recognizes English CalFresh renewal and verification correspondence. It does not determine eligibility or submit applications.', 'Este prototipo reconoce correspondencia de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s. No determina elegibilidad ni env\xEDa solicitudes.')}</p></div><button class="button light small" data-action="privacy">${t('Privacy & scope', 'Privacidad y alcance')}</button></div><div class="setting"><div><h3>${t('Remove saved information', 'Eliminar informaci\xF3n guardada')}</h3><p>${t('Reset practice, clear guest data on this device, or delete your signed-in personal workspace. Download important records first.', 'Reinicia la práctica, borra datos locales de invitado o elimina tu espacio personal con sesión iniciada. Descarga primero lo importante.')}</p></div><button class="button light small" data-action="clear-data">${icon('trash', 13)}${t('Manage saved data', 'Administrar datos')}</button></div></section>`
   );
 }
-function render() {
+function render({ captureAssistant = true } = {}) {
   // A storage/status update must not replace a clarification mid-edit. Keep
   // the existing input and its draft/caret until blur commits it. Navigating
   // or restoring another workspace clears selected, so this cannot retain an
@@ -644,6 +987,7 @@ function render() {
     return;
   }
   clarificationRenderDeferred = false;
+  if (captureAssistant) assistant.capture();
   const focusTarget = captureFocus();
   document.documentElement.lang = state.lang;
   const content =
@@ -664,11 +1008,19 @@ function render() {
                   today: refToday(),
                   capacityMinutes: continuityCapacity,
                 })
-              : page === 'support'
-                ? support()
-                : about();
+              : page === 'forms'
+                ? formsPage()
+                : page === 'calendar'
+                  ? calendarPage()
+                  : page === 'assistant'
+                    ? assistant.view()
+                    : page === 'support'
+                      ? support()
+                      : about();
   app.innerHTML = shell(content);
   guide?.refresh();
+  updateNextStep();
+  if (page === 'calendar') prepareCalendar();
   if (focusTarget)
     requestAnimationFrame(() => {
       // Do not steal focus if the resident already moved to another control.
@@ -837,7 +1189,7 @@ function handoffModal() {
 function privacyModal() {
   showModal(
     modalHead(t('Your information stays yours.', 'Tu informaci\xF3n te pertenece.')) +
-      `<div class="modal-body body-text"><p>${t('Anchor reads your PDFs and English-language images on your device. It does not send notice content to an AI service, analytics provider, or document-processing server. Its PDF reader and OCR files are served from the same site.', 'Anchor lee PDFs e im\xE1genes en ingl\xE9s en tu dispositivo. No env\xEDa los avisos a un servicio de IA, proveedor de an\xE1lisis ni servidor de procesamiento. Sus archivos de lectura PDF y OCR provienen del mismo sitio.')}</p><p>${t('Guest notices and files stay in this browser. When signed in, personal notices, originals, progress, and receipts save to your private Anchor account. A local account copy supports offline work; pending changes must reconnect before they reach other devices. Sign out after saving to clear that account’s local copy. Keep important originals and confirmations separately.', 'Los avisos y archivos de invitado quedan en este navegador. Con sesión iniciada, los avisos personales, originales, progreso y recibos se guardan en tu cuenta privada de Anchor. La copia local permite trabajar sin conexión; los cambios pendientes necesitan conexión para llegar a otros dispositivos. Cierra sesión después de guardar para borrar la copia local de esa cuenta. Conserva tus originales importantes.')}</p><p>${t('Saved pages work offline after the first visit. The larger PDF/OCR readers must be prepared once while connected before offline file imports. There are no background notifications; calendar reminders are exported to a calendar you choose.', 'Las p\xE1ginas guardadas funcionan sin conexi\xF3n despu\xE9s de la primera visita. Los lectores PDF/OCR deben prepararse con conexi\xF3n antes de importar archivos sin conexi\xF3n. No hay notificaciones en segundo plano; exportas las fechas a tu calendario.')}</p><p>${t('This is a focused prototype for English CalFresh renewal and verification notice families. It flags unsupported documents and ambiguous dates for human review. Original forms, checkbox appearance, and OCR errors can affect interpretation. The county determines eligibility, acceptance, and benefit status.', 'Este prototipo se centra en avisos de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s. Marca documentos no compatibles y fechas ambiguas para revisi\xF3n humana. Los formularios, casillas y errores de reconocimiento pueden afectar la interpretaci\xF3n. El condado determina elegibilidad, aceptaci\xF3n y estado de beneficios.')}</p><div class="button-row"><button class="button light" data-action="prepare-offline">${icon('download', 13)}${t('Prepare readers for offline use', 'Preparar lectores sin conexi\xF3n')}</button><button class="button light" data-action="backup">${t('Download backup', 'Descargar copia')}</button></div><p><a href="./privacy.html">${t('Read the full privacy policy', 'Leer la política de privacidad completa')}</a> · <a href="./terms.html">${t('Terms of use', 'Condiciones de uso')}</a></p><p id="offline-status" class="hint" role="status"></p></div>`,
+      `<div class="modal-body body-text"><p>${t('Anchor reads your PDFs and English-language images on your device. It does not send notice content to an AI service, analytics provider, or document-processing server. Its PDF reader and OCR files are served from the same site.', 'Anchor lee PDFs e im\xE1genes en ingl\xE9s en tu dispositivo. No env\xEDa los avisos a un servicio de IA, proveedor de an\xE1lisis ni servidor de procesamiento. Sus archivos de lectura PDF y OCR provienen del mismo sitio.')}</p><p>${t('Guest notices and files stay in this browser. When signed in, personal notices, originals, progress, and receipts save to your private Anchor account. A local account copy supports offline work; pending changes must reconnect before they reach other devices. Sign out after saving to clear that account’s local copy. Keep important originals and confirmations separately.', 'Los avisos y archivos de invitado quedan en este navegador. Con sesión iniciada, los avisos personales, originales, progreso y recibos se guardan en tu cuenta privada de Anchor. La copia local permite trabajar sin conexión; los cambios pendientes necesitan conexión para llegar a otros dispositivos. Cierra sesión después de guardar para borrar la copia local de esa cuenta. Conserva tus originales importantes.')}</p><p>${t('Saved pages work offline after the first visit. The larger PDF/OCR readers must be prepared once while connected before offline file imports. Choose a calendar file or optionally connect Google Calendar to add selected reminders.', 'Las p\xE1ginas guardadas funcionan sin conexi\xF3n despu\xE9s de la primera visita. Los lectores PDF/OCR deben prepararse con conexi\xF3n antes de importar archivos sin conexi\xF3n. No hay notificaciones en segundo plano; exportas las fechas a tu calendario.')}</p><p>${t('This is a focused prototype for English CalFresh renewal and verification notice families. It flags unsupported documents and ambiguous dates for human review. Original forms, checkbox appearance, and OCR errors can affect interpretation. The county determines eligibility, acceptance, and benefit status.', 'Este prototipo se centra en avisos de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s. Marca documentos no compatibles y fechas ambiguas para revisi\xF3n humana. Los formularios, casillas y errores de reconocimiento pueden afectar la interpretaci\xF3n. El condado determina elegibilidad, aceptaci\xF3n y estado de beneficios.')}</p><div class="button-row"><button class="button light" data-action="prepare-offline">${icon('download', 13)}${t('Prepare readers for offline use', 'Preparar lectores sin conexi\xF3n')}</button><button class="button light" data-action="backup">${t('Download backup', 'Descargar copia')}</button></div><p><a href="./privacy.html">${t('Read the full privacy policy', 'Leer la política de privacidad completa')}</a> · <a href="./terms.html">${t('Terms of use', 'Condiciones de uso')}</a></p><p id="offline-status" class="hint" role="status"></p></div>`,
   );
 }
 app.addEventListener('click', handleClick);
@@ -848,6 +1200,142 @@ async function handleClick(ev) {
   const a = btn.dataset.action;
   ev.preventDefault();
   try {
+    if (assistant.action(btn)) return;
+    if (a === 'form-open') {
+      openForm(btn.dataset.id, btn.dataset.task);
+      return;
+    }
+    if (
+      a === 'form-section' ||
+      a === 'form-preview' ||
+      a === 'form-export-pdf' ||
+      a === 'form-export-notes'
+    ) {
+      const form = $('#form-assistance-draft');
+      if (!form?.reportValidity() || !activeForm) return;
+      const context = activeForm;
+      await saveActiveForm();
+      if (context !== activeForm || !formRecord(context)) return;
+      if (a === 'form-section') {
+        context.section = Math.max(
+          0,
+          Math.min(context.assistance.sections.length - 1, Number(btn.dataset.section) || 0),
+        );
+        context.previewPage = context.assistance.sections[context.section].page;
+        showActiveForm();
+        $('#form-assist-section-title')?.scrollIntoView({ block: 'nearest' });
+      } else if (a === 'form-preview') {
+        context.previewPage = Math.max(
+          1,
+          Math.min(context.assistance.form?.pages || 100, Number(btn.dataset.page) || 1),
+        );
+        showActiveForm();
+      } else if (a === 'form-export-notes') {
+        downloadFile(
+          'anchor-preparation-notes.txt',
+          formDraftSummary(context.assistance, context.draft),
+          'text/plain;charset=utf-8',
+        );
+      } else {
+        const record = formRecord(context);
+        if (record.attachmentId)
+          throw new Error(
+            'Use your attached form and preparation notes. Official field mappings apply only to the verified blank.',
+          );
+        const documents = await import('./form-documents.js');
+        const bytes = await documents.fillOfficialForm(
+          context.assistance.form,
+          toPdfFieldValues(context.assistance, context.draft),
+        );
+        if (context !== activeForm || !formRecord(context)) return;
+        downloadFile('anchor-unsigned-cf37-draft.pdf', bytes, 'application/pdf');
+        toast(
+          t(
+            'Unsigned draft downloaded. Review every page and sign the actual form before returning it.',
+            'Borrador sin firmar descargado. Revisa todas las páginas y firma antes de enviarlo.',
+          ),
+        );
+      }
+      return;
+    }
+    if (a === 'calendar-preview') {
+      navigate('calendar');
+      return;
+    }
+    if (a === 'calendar-disconnect') {
+      calendarClient.clear();
+      calendarPending = null;
+      calendarStatus = t(
+        'Calendar disconnected for this session. Your existing events are unchanged.',
+        'Calendario desconectado. Los eventos existentes se conservan.',
+      );
+      render();
+      return;
+    }
+    if (a === 'calendar-connect') {
+      if (calendarBusy || state.mode === 'demo') return;
+      const all = getCalendarCandidates(workspace().notices, state.lang);
+      const candidates = [
+        ...document.querySelectorAll('#calendar-form input[name="event"]:checked'),
+      ]
+        .map((input) => all[Number(input.value)])
+        .filter(Boolean);
+      if (!candidates.length)
+        throw new Error(
+          t('Choose at least one checked date.', 'Elige al menos una fecha verificada.'),
+        );
+      const owner = `${accountInfo.user?.id || 'guest'}:${state.mode}`;
+      // Google's popup starts directly from this click's user gesture.
+      if (!calendarClient.connected) await calendarClient.connect();
+      if (owner !== `${accountInfo.user?.id || 'guest'}:${state.mode}`) return;
+      previewCalendar(candidates);
+      return;
+    }
+    if (a === 'calendar-create') {
+      if (
+        calendarBusy ||
+        !calendarPending ||
+        calendarPending.owner !== `${accountInfo.user?.id || 'guest'}:${state.mode}`
+      )
+        return;
+      const context = calendarPending;
+      calendarBusy = true;
+      btn.disabled = true;
+      const status = $('#calendar-create-status');
+      try {
+        const current = new Set(
+          getCalendarCandidates(workspace().notices, state.lang).map((item) => item.key),
+        );
+        if (context.candidates.some((item) => !current.has(item.key)))
+          throw new Error('The checked dates changed. Review the Calendar page again.');
+        const events = await Promise.all(
+          context.candidates.map((item) =>
+            createCalendarEvent(item, {
+              namespace: accountInfo.user?.id || 'guest',
+              mode: state.mode,
+            }),
+          ),
+        );
+        if (context !== calendarPending) return;
+        const results = await calendarClient.addEvents(events);
+        if (context !== calendarPending) return;
+        calendarStatus = t(
+          `${results.length} reminders checked in Google Calendar. Repeated reminders preserve existing events.`,
+          `${results.length} recordatorios revisados en Google Calendar. Los repetidos conservan eventos existentes.`,
+        );
+        modal.close();
+        calendarPending = null;
+        render();
+        toast(calendarStatus);
+      } catch (error) {
+        if (status?.isConnected) status.textContent = error.message;
+        btn.disabled = false;
+      } finally {
+        calendarBusy = false;
+        if (page === 'calendar' && !modal.open) render();
+      }
+      return;
+    }
     if (a === 'workspace-personal' || a === 'workspace-demo') {
       state.mode = a === 'workspace-personal' ? 'personal' : 'demo';
       await persist();
@@ -949,7 +1437,8 @@ async function handleClick(ev) {
       return;
     }
     if (a === 'close-modal') {
-      if (busy) {
+      if (modal.querySelector('#form-assistance-draft')) await saveActiveForm();
+      if (busy || calendarBusy) {
         toast(
           t(
             'Your notice is still being read. Please wait.',
@@ -1207,6 +1696,34 @@ document.addEventListener('focusout', (ev) => {
     });
 });
 document.addEventListener('change', async (ev) => {
+  if (ev.target.id === 'form-source-file') {
+    const context = activeForm,
+      record = formRecord(context),
+      file = ev.target.files?.[0];
+    if (!record || !file) return;
+    try {
+      if (file.size > 20 * 1024 * 1024 || file.size === 0 || !/\.pdf$/i.test(file.name))
+        throw new Error('Choose a PDF form up to 20 MB.');
+      const header = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer());
+      if (header !== '%PDF-') throw new Error('This file is not a readable PDF form.');
+      await saveActiveForm();
+      if (context !== activeForm || !formRecord(context)) return;
+      const attachmentId = await storeFile(file);
+      if (context !== activeForm || !formRecord(context)) return;
+      record.attachmentId = attachmentId;
+      record.filename = file.name;
+      await persist();
+      showActiveForm();
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
+  if (ev.target.matches('#form-assistance-draft [data-form-field]')) {
+    await saveActiveForm();
+    if (ev.target.tagName === 'SELECT' && activeForm) showActiveForm();
+    return;
+  }
   const el = ev.target;
   if (el.id === 'language') {
     state.lang = el.value;
@@ -1268,7 +1785,13 @@ document.addEventListener('change', async (ev) => {
     render();
   }
 });
+app.addEventListener('submit', async (ev) => {
+  if (ev.target.id !== 'assistant-form') return;
+  ev.preventDefault();
+  await assistant.submit(ev.target);
+});
 modal.addEventListener('submit', async (ev) => {
+  if (ev.target.id === 'form-assistance-draft') return;
   ev.preventDefault();
   if (busy) return;
   const form = ev.target,
@@ -1397,7 +1920,15 @@ modal.addEventListener('submit', async (ev) => {
   }
 });
 modal.addEventListener('cancel', (ev) => {
-  if (busy) ev.preventDefault();
+  if (busy || calendarBusy) ev.preventDefault();
+  else if (modal.querySelector('#form-assistance-draft')) saveActiveForm().catch(() => {});
+});
+modal.addEventListener('close', () => {
+  activeForm = null;
+  formPreviewGeneration++;
+  if (!calendarBusy) calendarPending = null;
+  guide?.refresh();
+  nextStepCue?.refresh();
 });
 modal.addEventListener('dragover', (ev) => {
   const drop = ev.target.closest('#drop-zone');
@@ -1421,8 +1952,7 @@ window.addEventListener('online', () => render());
 window.addEventListener('offline', () => render());
 window.addEventListener('hashchange', () => {
   const p = location.hash.slice(1);
-  if (['overview', 'notices', 'plan', 'evidence', 'continuity', 'support', 'about'].includes(p))
-    navigate(p);
+  if (PAGES.includes(p)) navigate(p);
 });
 async function prepareReaders(btn) {
   btn.disabled = true;
@@ -1471,8 +2001,7 @@ async function init() {
     storageFailed = true;
   }
   const p = location.hash.slice(1);
-  if (['overview', 'notices', 'plan', 'evidence', 'continuity', 'support', 'about'].includes(p))
-    page = p;
+  if (PAGES.includes(p)) page = p;
   render();
   accountTransport = createConfiguredSupabaseTransport(settings);
   account = createAccountSync({
@@ -1480,14 +2009,34 @@ async function init() {
     getState: () => state,
     onState: (saved) => {
       // A restored or switched account invalidates any open record-edit dialog.
-      if (modal.open && modal.querySelector('#acknowledgment-form, #reuse-form')) modal.close();
+      if (
+        modal.open &&
+        modal.querySelector(
+          '#acknowledgment-form, #reuse-form, #form-assistance-draft, #calendar-create-status',
+        )
+      )
+        modal.close();
+      activeForm = null;
+      formPreviewGeneration++;
+      calendarPending = null;
       state = { ...state, ...saved, mode: 'personal' };
       selected = null;
       highlightLine = null;
       render();
     },
     onReset: (saved) => {
-      if (modal.open && modal.querySelector('#acknowledgment-form, #reuse-form')) modal.close();
+      if (
+        modal.open &&
+        modal.querySelector(
+          '#acknowledgment-form, #reuse-form, #form-assistance-draft, #calendar-create-status',
+        )
+      )
+        modal.close();
+      activeForm = null;
+      formPreviewGeneration++;
+      calendarPending = null;
+      calendarClient.clear();
+      assistant.reset();
       state = saved?.demo ? saved : freshState();
       selected = null;
       highlightLine = null;
@@ -1497,11 +2046,26 @@ async function init() {
       const signedIn = !accountInfo.authenticated && snapshot.authenticated;
       const reconnected =
         accountInfo.authenticated && !accountInfo.sessionVerified && snapshot.sessionVerified;
+      if (accountInfo.user?.id !== snapshot.user?.id) {
+        calendarClient.clear();
+        assistant.reset();
+      }
+      signInTourPending ||= signedIn || reconnected;
       accountInfo = snapshot;
-      if (state) render();
       app.inert = Boolean(snapshot.busy) || ['loading', 'signing-in'].includes(snapshot.syncState);
-      if ((signedIn || reconnected) && modal.open && modal.dataset.account === 'true') {
-        modal.close();
+      if (state) render();
+      if (
+        signInTourPending &&
+        snapshot.authenticated &&
+        snapshot.sessionVerified &&
+        !snapshot.busy &&
+        !app.inert
+      ) {
+        if (modal.open && modal.dataset.account === 'true') modal.close();
+        if (guide) {
+          signInTourPending = false;
+          guide.afterSignIn();
+        }
         toast(
           t(
             'Signed in. Your account workspace is ready.',
@@ -1533,8 +2097,19 @@ async function init() {
     busy = false;
   }
   await persist();
+  nextStepCue = createNextStepCue({
+    getText: () => ({
+      eyebrow: t('YOUR NEXT STEP', 'TU SIGUIENTE PASO'),
+      dismiss: t('Dismiss', 'Cerrar'),
+      continue: t('Continue', 'Continuar'),
+    }),
+  });
+  updateNextStep();
   guide = createGuide({ navigate, getState: () => state });
-  guide.autoStart();
+  if (signInTourPending && accountInfo.authenticated && accountInfo.sessionVerified) {
+    signInTourPending = false;
+    guide.afterSignIn();
+  } else guide.autoStart();
   if ('serviceWorker' in navigator)
     navigator.serviceWorker.register(assetURL('sw.js')).catch(() => {});
 }

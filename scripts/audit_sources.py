@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Offline release audit for Anchor's static artifact and source registry.
 
-This checks deployability and provenance structure, not whether a policy is still
-current. No notices, documents, network requests, or user credentials are read.
+This checks deployability, official form integrity, and provenance structure,
+not whether a policy is still current. Only public release assets are read;
+no resident documents, network requests, or user credentials are read.
 Python's standard library keeps the same checks runnable locally and in CI.
 """
 from __future__ import annotations
@@ -34,6 +35,9 @@ ACCOUNT_LICENSES = (
     "supabase-phoenix-LICENSE.txt", "iceberg-js-LICENSE.txt", "tslib-LICENSE.txt",
 )
 ASSET_SUFFIXES = r"(?:js|mjs|css|svg|png|pdf|webmanifest|wasm|gz|woff2|bcmap|json)"
+OFFICIAL_FORM_HOSTS = {"www.cdss.ca.gov", "cdss.ca.gov"}
+MAX_OFFICIAL_FORM_BYTES = 20 * 1024 * 1024
+MAX_FORM_REVIEW_AGE_DAYS = 180
 
 
 class HTMLReferences(HTMLParser):
@@ -90,6 +94,129 @@ def secret_key_present(text: str) -> bool:
     return False
 
 
+def audit_official_forms(site: Path, repository: Path, today: date,
+                         errors: list[str], warnings: list[str],
+                         checked_assets: set[str]) -> dict:
+    """Verify only the bundled public forms, never files from a user's case.
+
+    SHA-256 checks bind each source record to its exact bytes and, for mapped
+    forms, to the canonical TypeScript catalogue. Declared page counts are
+    bounded metadata: actual compressed/encrypted PDF structure is checked by
+    the local PDF reader and the fillable-template tests, not guessed here.
+    """
+    result = {"official_forms": 0, "official_form_bytes": 0,
+              "official_form_checksums_verified": 0}
+    manifest = site / "forms/sources.json"
+    required = (site / "form-assistance.js").is_file()
+    if not manifest.is_file():
+        if required:
+            errors.append("Missing forms/sources.json for guided form assistance.")
+        return result
+    try:
+        if manifest.stat().st_size > 128 * 1024:
+            raise ValueError("oversized registry")
+        contents = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(contents, dict):
+            raise ValueError("registry must be an object")
+        assets = contents.get("assets")
+        if not isinstance(assets, list) or not 1 <= len(assets) <= 20:
+            raise ValueError("registry needs one to twenty public forms")
+    except (OSError, ValueError, UnicodeError):
+        errors.append("forms/sources.json is invalid or exceeds its size limit.")
+        return result
+    checked_assets.add("forms/sources.json")
+    reviewed_at = contents.get("reviewedAt")
+    try:
+        if not isinstance(reviewed_at, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", reviewed_at):
+            raise ValueError("ISO date required")
+        age = (today - date.fromisoformat(reviewed_at)).days
+        if age < 0:
+            errors.append("Official form registry has a future review date.")
+        elif age > MAX_FORM_REVIEW_AGE_DAYS:
+            errors.append(f"Official forms were reviewed {age} days ago; recheck their sources before release.")
+        elif age > 90:
+            warnings.append(f"Official forms were reviewed {age} days ago; check for revised templates.")
+    except ValueError:
+        errors.append("Official form registry needs an ISO reviewedAt date.")
+
+    # Changing both an asset and its JSON checksum must not silently drift from
+    # the PDF field mapping's pinned template. No TypeScript is executed.
+    catalogue = repository / "src/domain/form-assistance.ts"
+    mapped_checksums: dict[str, str] = {}
+    expected_files: set[str] = set()
+    if required and catalogue.is_file():
+        source = catalogue.read_text(encoding="utf-8")
+        mapped_checksums = dict(re.findall(
+            r"\blocalPath\s*:\s*['\"]\./forms/([^'\"]+)['\"][\s\S]*?\bsha256\s*:\s*['\"]([a-f0-9]{64})['\"]",
+            source,
+        ))
+        expected_files.update(mapped_checksums)
+        expected_files.update(re.findall(r"\binstructionsPath\s*:\s*['\"]\./forms/([^'\"]+)['\"]", source))
+
+    filenames: set[str] = set()
+    for asset in assets:
+        if not isinstance(asset, dict):
+            errors.append("Official form registry contains a non-object record.")
+            continue
+        filename = asset.get("file")
+        # A basename is deliberate: URLs, absolute paths, backslashes, encoded
+        # traversal, queries and nested resident-document directories are invalid.
+        if not isinstance(filename, str) or not re.fullmatch(r"[a-z0-9]+(?:[-_][a-z0-9]+)*\.pdf", filename):
+            errors.append("Official form registry contains an unsafe PDF file path.")
+            continue
+        if filename in filenames:
+            errors.append(f"Duplicate official form file: {filename}.")
+            continue
+        filenames.add(filename)
+        result["official_forms"] += 1
+        for name in ("title", "agency"):
+            if not isinstance(asset.get(name), str) or not asset[name].strip() or len(asset[name]) > 250:
+                errors.append(f"Official form {filename} needs a bounded {name}.")
+        for name in ("source", "catalogue"):
+            value = asset.get(name)
+            try:
+                if not isinstance(value, str) or len(value) > 2000 or re.search(r"\s", value):
+                    raise ValueError("invalid URL")
+                url = urlsplit(value)
+                if (url.scheme != "https" or url.hostname not in OFFICIAL_FORM_HOSTS
+                        or url.username or url.password or url.port not in (None, 443)
+                        or url.fragment or (name == "source" and not url.path.lower().endswith(".pdf"))):
+                    raise ValueError("not an official CDSS URL")
+            except ValueError:
+                errors.append(f"Official form {filename} needs an HTTPS CDSS {name} URL.")
+        if type(asset.get("pages")) is not int or not 1 <= asset["pages"] <= 40:
+            errors.append(f"Official form {filename} page count must be between 1 and 40.")
+        checksum = asset.get("sha256")
+        if not isinstance(checksum, str) or not re.fullmatch(r"[a-f0-9]{64}", checksum):
+            errors.append(f"Official form {filename} needs a SHA-256 checksum.")
+            checksum = None
+        if filename in mapped_checksums and checksum != mapped_checksums[filename]:
+            errors.append(f"Official form {filename} checksum differs from its field-mapping catalogue.")
+        try:
+            candidate = safe_local_file(site, f"./forms/{filename}")
+            if candidate is None or not candidate.is_file():
+                errors.append(f"Missing official form PDF: {filename}.")
+                continue
+            size = candidate.stat().st_size
+            if not 8 <= size <= MAX_OFFICIAL_FORM_BYTES:
+                errors.append(f"Official form {filename} is empty or exceeds 20 MB.")
+                continue
+            raw = candidate.read_bytes()
+            result["official_form_bytes"] += size
+            checked_assets.add(candidate.relative_to(site).as_posix())
+            if not re.match(rb"%PDF-[12]\.\d", raw):
+                errors.append(f"Official form {filename} has no valid PDF header.")
+            if checksum and hashlib.sha256(raw).hexdigest() == checksum:
+                result["official_form_checksums_verified"] += 1
+            elif checksum:
+                errors.append(f"Official form {filename} checksum differs from its source registry.")
+        except (OSError, ValueError):
+            errors.append(f"Official form {filename} cannot be read safely inside the website.")
+    for filename in sorted(expected_files - filenames):
+        errors.append(f"Official form {filename} is absent from its source registry.")
+    return result
+
+
 def audit(site: Path, repository: Path, today: date | None = None) -> dict:
     site, repository = site.resolve(), repository.resolve()
     today = today or date.today()
@@ -99,6 +226,7 @@ def audit(site: Path, repository: Path, today: date | None = None) -> dict:
     report = {"status": "pass", "site": str(site), "sources": 0, "practice_fixtures": 0,
               "checked_assets": 0, "reader_bytes": 0, "reader_checksum_verified": False,
               "errors": errors, "warnings": warnings}
+    report.update(audit_official_forms(site, repository, today, errors, warnings, checked_assets))
 
     def check_reference(reference: str, from_file: Path) -> None:
         if reference.startswith("/") and not reference.startswith("//"):

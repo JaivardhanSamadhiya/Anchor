@@ -10,7 +10,7 @@ async function setup(){
   const context=await browser.newContext({viewport:{width:1280,height:960},acceptDownloads:true});
   const page=await context.newPage(),errors=[];
   page.on('pageerror',err=>errors.push(err.message));
-  await page.addInitScript(() => localStorage.setItem('anchor-guide-v1','dismissed'));
+  await page.addInitScript(() => sessionStorage.setItem('anchor-guide-session-v2','dismissed'));
     await page.goto(process.env.ANCHOR_BROWSER_TEST_URL);
   await page.locator('[data-action="import"]').first().waitFor();
   return {browser,context,page,errors};

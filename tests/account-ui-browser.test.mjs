@@ -24,7 +24,7 @@ async function newPage(browser, { skipGuide = false } = {}) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  if (skipGuide) await page.addInitScript(() => localStorage.setItem('anchor-guide-v1', 'dismissed'));
+  if (skipGuide) await page.addInitScript(() => sessionStorage.setItem('anchor-guide-session-v2', 'dismissed'));
   return { context, page, errors };
 }
 
@@ -150,7 +150,7 @@ test('actual app guide: first-visit seven stops, replay, and reload preserve the
       await page.locator('[data-guide-action="next"]').click();
     }
     assert.equal(await page.locator('.anchor-guide[open]').count(), 0);
-    assert.equal(await page.evaluate(() => localStorage.getItem('anchor-guide-v1')), 'completed');
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('anchor-guide-session-v2')), 'completed');
     assert.deepEqual(await storedState(page), before, 'the actual guide must not alter notice facts, confirmation, progress, or events');
     await page.locator('[data-action="guide"]').first().click();
     await page.locator('#anchor-guide-title').filter({ hasText: stops[0][0] }).waitFor();
@@ -199,6 +199,12 @@ test('actual app with fictional authenticated API: dates, reviewed plan, origina
     await loadApp(first.page);
     await first.page.getByRole('button', { name: 'Open account settings', exact: true }).waitFor();
     await first.page.locator('.save-status').filter({ hasText: 'Saved to your account' }).waitFor();
+    // Restoring a verified account opens its own welcome even when this tab's
+    // entry tour was dismissed. Dismiss it through the visible control.
+    await first.page.locator('.anchor-guide-welcome[open]').waitFor();
+    assert.match(await first.page.locator('#anchor-guide-title').innerText(), /You’re signed in/);
+    await first.page.locator('.anchor-guide-welcome [data-guide-action="skip"]').last().click();
+    assert.equal(await first.page.locator('.anchor-guide[open]').count(), 0);
     assert.equal(await first.page.locator('.sample-strip').count(), 0);
     const initial = await storedState(first.page, ACCOUNT_ID);
     assert.equal(initial.personal.notices[0].id, api.seed.id);
@@ -257,6 +263,10 @@ test('actual app with fictional authenticated API: dates, reviewed plan, origina
     await api.attach(second.context);
     await loadApp(second.page);
     await second.page.locator('.save-status').filter({ hasText: 'Saved to your account' }).waitFor();
+    await second.page.locator('.anchor-guide-welcome[open]').waitFor();
+    assert.match(await second.page.locator('#anchor-guide-title').innerText(), /You’re signed in/);
+    await second.page.locator('.anchor-guide-welcome [data-guide-action="skip"]').last().click();
+    assert.equal(await second.page.locator('.anchor-guide[open]').count(), 0);
     const restored = await storedState(second.page, ACCOUNT_ID);
     const seed = restored.personal.notices.find(notice => notice.id === api.seed.id);
     assert.equal(seed.deadlines.find(deadline => deadline.id === submit.id).date, '2026-10-16');
@@ -284,9 +294,15 @@ test('actual app with fictional authenticated API: dates, reviewed plan, origina
     assert.equal(await second.page.locator('.notice-card').count(), 2);
     assert.equal(await second.page.locator(`.notice-card [data-id="${uploaded.id}"]`).count(), 0);
     await second.page.locator('[data-action="workspace-personal"]').click();
+    await nav(second.page, 'assistant');
+    await second.page.locator('#assistant-question').fill('Fictional private question draft for QA only');
+    await second.page.locator('#assistant-adult').check();
     await second.page.getByRole('button', { name: 'Open account settings', exact: true }).click();
     await second.page.locator('[data-action="signout-account"]').click();
     await second.page.getByRole('button', { name: 'Sign in with Google', exact: true }).waitFor();
+    await nav(second.page, 'assistant');
+    assert.equal(await second.page.locator('#assistant-question').inputValue(), '', 'sign-out must clear the account question draft');
+    assert.equal(await second.page.locator('#assistant-adult').isChecked(), false, 'Gemini consent must reset with the account');
     await second.page.locator('[data-action="workspace-personal"]').click();
     await nav(second.page, 'notices');
     await second.page.locator('.empty-state').waitFor();
