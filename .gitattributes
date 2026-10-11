@@ -1,0 +1,2 @@
+# Preserve verified document bytes and avoid platform PDF text-conversion diffs.
+*.pdf binary

@@ -31,11 +31,15 @@ import {
   getFormAssistance,
   createFormDraft,
   updateFormDraft,
+  assessFormDraft,
   toPdfFieldValues,
   formDraftSummary,
 } from './form-assistance.js';
 import { renderFormAssistance } from './form-assistance-view.js';
 import { createProgramAssistant } from './assistant-ui.js';
+import { createFormAssistant } from './form-assistant-controller.js';
+import { DISTRICT_CONTEXT, COUNTY_SERVICES, PROGRAM_CAPABILITIES } from './district-services.js';
+import { PROGRAM_IDS, PROGRAM_KNOWLEDGE } from './program-assistant.js';
 import { getCalendarCandidates, createCalendarEvent } from './google-calendar.js';
 import { createCalendarClient } from './google-calendar-client.js';
 
@@ -103,6 +107,9 @@ let account, guide, accountTransport, nextStepCue;
 let signInTourPending = false;
 let activeForm = null,
   formPreviewGeneration = 0;
+let formPreviewQueue = Promise.resolve(),
+  formPreviewTimer,
+  formSaveTimer;
 let calendarStatus = '',
   calendarBusy = false,
   calendarIdentityReady = false,
@@ -119,6 +126,16 @@ const assistant = createProgramAssistant({
   },
   navigate: (destination) => navigate(destination),
   escapeHTML: e,
+});
+const formAssistant = createFormAssistant({
+  getForm: () => {
+    const record = formRecord();
+    return record && !record.attachmentId ? activeForm : null;
+  },
+  getAccount: () => accountInfo,
+  getLanguage: () => state?.lang || 'en',
+  ask: (request, signal) => accountTransport.askProgram(request, signal),
+  redraw: redrawFormAssistant,
 });
 const PAGES = [
   'overview',
@@ -450,6 +467,23 @@ function shell(content) {
       '',
     )}</nav><div class="side-bottom"><div class="side-note">${icon('shield', 23)}<strong>${t('Your information stays yours.', 'Tu informaci\xF3n te pertenece.')}</strong>${t('Sign in to save across devices. Practice notices and your own letters stay separate.', 'Inicia sesión para guardar en varios dispositivos. Tus avisos y ejemplos están separados.')}</div><div class="side-footer"><span class="dot"></span>${t('Made for peace of mind', 'Creado para tu tranquilidad')}</div></div></aside><div class="main-wrap"><header class="topbar"><div class="topbar-left"><button class="mobile-nav-toggle" data-action="menu" aria-label="${t('Open navigation', 'Abrir navegaci\xF3n')}" aria-expanded="${navOpen}">${icon('menu', 20)}</button><div class="mobile-brand"><img src="./icon.svg" alt="">Anchor</div><div class="breadcrumb">${t('Workspace', 'Espacio')} ${icon('chevron', 11)} <strong>${names[page]}</strong></div></div><div class="top-controls">${syncBadge()}<label class="lang-toggle">${icon('globe', 15)}<select id="language" aria-label="${t('Interface language', 'Idioma de la interfaz')}"><option value="en" ${state.lang === 'en' ? 'selected' : ''}>English</option><option value="es" ${state.lang === 'es' ? 'selected' : ''}>Espa\xF1ol</option></select></label>${accountButton()}</div></header><main id="main" class="content" tabindex="-1">${state.mode === 'demo' ? `<div class="sample-strip">${icon('spark', 14)}<span>${t('Sample workspace \xB7 Fictional notices. Practice freely; your own letters stay separate.', 'Espacio de pr\xE1ctica \xB7 Avisos ficticios. Tus propios avisos se guardan por separado.')}</span><button data-action="switch-mode">${t('Go to my workspace', 'Ir a mi espacio')}${icon('arrow', 11)}</button></div>` : storageFailed ? `<div class="review-warning">${icon('warning', 16)}${t('Changes are not saved in this browser. Download a backup.', 'Los cambios no se guardan en este navegador. Descarga una copia.')}</div>` : ''}${flowNavigation()}${syncAlert()}${content}<footer class="footer"><span>${icon('lock', 11)}${t('Read on your device. Sign in to save your progress.', 'Lectura local. Inicia sesión para guardar tu progreso.')}</span><div class="footer-links"><button data-action="guide">${t('Guide', 'Guía')}</button><button data-action="privacy">${t('Privacy & storage', 'Privacidad')}</button><button data-action="nav" data-page="support">${t('Official resources', 'Recursos oficiales')}${icon('external', 10)}</button></div></footer></main></div></div>`;
 }
+// Capability labels come from the reviewed catalogue, rather than implying
+// that every program supported by the assistant has a mapped PDF template.
+function coveragePanel() {
+  const county = COUNTY_SERVICES[state.county] || COUNTY_SERVICES['santa-clara'];
+  return `<section class="panel coverage-panel" aria-labelledby="coverage-title"><div class="coverage-heading"><div><span class="eyebrow">${t('LOCAL SERVICES', 'SERVICIOS LOCALES')}</span><h2 id="coverage-title">${t('Built for California’s 16th District', 'Para el distrito 16 de California')}</h2></div><span class="coverage-badge">CF 37 · SAR 7</span></div><p>${t('Prepare CalFresh renewal and reporting forms with live PDF answers. These are statewide CDSS forms used in Santa Clara and San Mateo counties; always follow the form and instructions your county sent.', 'Prepara formularios de renovación y reportes de CalFresh con respuestas en el PDF. Son formularios estatales de CDSS utilizados en los condados de Santa Clara y San Mateo; sigue las instrucciones de tu condado.')}</p><div class="coverage-links">${ext(DISTRICT_CONTEXT.representativeLookupUrl, t('Check your representative', 'Verifica tu representante'))}${ext(county.helpUrl, `${county.name}: ${t('get help', 'obtener ayuda')}`)}<button class="link-button" data-action="nav" data-page="support">${t('Choose county resources', 'Elige recursos del condado')} →</button></div><details><summary>${t('Which programs can Anchor help with?', '¿Con qué programas ayuda Anchor?')}</summary><div class="coverage-table-wrap"><table class="coverage-table"><caption>${t('Available tools by program', 'Herramientas por programa')}</caption><thead><tr><th scope="col">${t('Program & official source', 'Programa y fuente oficial')}</th><th scope="col">${t('Tools available', 'Herramientas disponibles')}</th></tr></thead><tbody>${PROGRAM_IDS.filter(
+    (id) => id !== 'navigation',
+  )
+    .map((id) => {
+      const program = PROGRAM_KNOWLEDGE[id];
+      const capability = PROGRAM_CAPABILITIES[id];
+      return `<tr><th scope="row">${ext(program.sources[0].url, program.label)}</th><td>${capability.guidedForms.length ? t('Notice review, guided forms, live PDF downloads and source-linked Anchor explanations', 'Revisión de avisos, formularios guiados, descarga de PDF y explicaciones de Anchor con fuentes') : t('Source-linked Anchor explanations and official application links', 'Explicaciones de Anchor con fuentes y enlaces oficiales para solicitar')}</td></tr>`;
+    })
+    .join(
+      '',
+    )}<tr><th scope="row">${ext(county.programs.find((program) => program.id === 'calworks').url, 'CalWORKs')}</th><td>${t('Official county links', 'Enlaces oficiales del condado')}</td></tr></tbody></table></div><p class="hint">${t('Additional program forms can be attached and read locally. Automatic field filling is available for the two verified CalFresh templates above. Combined benefit cases may require SAWS 2 Plus or other county forms.', 'Puedes adjuntar y leer formularios de otros programas aquí. El llenado automático está disponible para los dos formularios verificados de CalFresh. Los casos combinados pueden requerir SAWS 2 Plus u otros formularios.')}</p><p class="hint">${t('Current representation: Sam Liccardo, 119th Congress. The district includes parts of both counties; a county or ZIP code alone does not confirm your district. The new 2026 election maps take effect for representation on January 3, 2027.', 'Representación actual: Sam Liccardo, Congreso 119. El distrito incluye partes de ambos condados; el condado o código postal por sí solo no confirma tu distrito. Los nuevos mapas electorales de 2026 entran en vigor para la representación el 3 de enero de 2027.')} ${ext(DISTRICT_CONTEXT.sources.find((source) => source.id === 'ca-redistricting').url, t('Official district information', 'Información oficial del distrito'))}</p><small>${t('Sources reviewed', 'Fuentes revisadas')}: ${e(DISTRICT_CONTEXT.checkedAt)}</small></details></section>`;
+}
+
 function formsPage() {
   const notices = workspace().notices;
   return (
@@ -460,6 +494,7 @@ function formsPage() {
         'Abre el formulario oficial cuando se identifica. Prepara la solicitud paso a paso.',
       ),
     ) +
+    coveragePanel() +
     (!notices.length
       ? empty(
           t('Start with your notice.', 'Empieza con tu aviso.'),
@@ -485,7 +520,7 @@ function formRecord(context = activeForm) {
   return notice.formDrafts.find((record) => record.id === context.draft.id) || null;
 }
 
-async function saveActiveForm() {
+function captureActiveForm() {
   const context = activeForm,
     record = formRecord(context);
   if (!record) return;
@@ -494,12 +529,89 @@ async function saveActiveForm() {
     updates[field.dataset.formField] = field.type === 'checkbox' ? field.checked : field.value;
   context.draft = updateFormDraft(context.assistance, context.draft, updates);
   record.draft = context.draft;
+  const progress = modal.querySelector('.form-assist-progress');
+  if (progress) {
+    const assessment = assessFormDraft(context.assistance, context.draft);
+    progress.textContent = `${assessment.answered} ${t('answers drafted', 'respuestas en borrador')}${assessment.needsHelp ? ` · ${assessment.needsHelp} ${t('questions for help', 'preguntas para pedir ayuda')}` : ''}`;
+  }
+  return context;
+}
+
+async function saveActiveForm() {
+  if (!captureActiveForm()) return;
   return persist();
+}
+
+function redrawFormAssistant() {
+  if (!activeForm || !modal.open) return;
+  const panel = modal.querySelector('.form-assistant-panel');
+  if (!panel) return;
+  const input = $('#form-assistant-question');
+  const focused = document.activeElement === input;
+  const caret = focused ? [input.selectionStart, input.selectionEnd] : null;
+  panel.outerHTML = formAssistant.view();
+  if (focused) {
+    const replacement = $('#form-assistant-question');
+    replacement?.focus({ preventScroll: true });
+    if (caret) replacement?.setSelectionRange(...caret);
+  }
+}
+
+// Debouncing avoids a network save and a full PDF render per keystroke. The
+// controls retain their focus/caret; only the actual PDF preview is repainted.
+function scheduleFormUpdate(field) {
+  const context = captureActiveForm();
+  if (!context) return;
+  formPreviewGeneration++;
+  clearTimeout(formPreviewTimer);
+  clearTimeout(formSaveTimer);
+  const section = context.assistance.sections[context.section];
+  const definition = section.fields.find((item) => item.id === field.dataset.formField);
+  if (definition?.page) context.previewPage = definition.page;
+  formPreviewTimer = setTimeout(() => {
+    if (context !== activeForm || !formRecord(context)) return;
+    const form = $('#form-assistance-draft');
+    if (!form?.checkValidity()) {
+      const status = $('#form-preview-status');
+      if (status)
+        status.textContent = t(
+          'Check the highlighted field format to update the PDF.',
+          'Revisa el formato del campo para actualizar el PDF.',
+        );
+      return;
+    }
+    renderActiveFormPage();
+  }, 300);
+  formSaveTimer = setTimeout(async () => {
+    if (context !== activeForm || !formRecord(context)) return;
+    try {
+      const saved = await saveActiveForm();
+      const status = $('#form-assist-save-status');
+      if (context === activeForm && status)
+        status.textContent = saved
+          ? t(
+              'Draft saved. Your answers appear in the PDF.',
+              'Borrador guardado. Tus respuestas aparecen en el PDF.',
+            )
+          : t(
+              'Download the PDF to keep a copy of your answers.',
+              'Descarga el PDF para conservar tus respuestas.',
+            );
+    } catch {
+      const status = $('#form-assist-save-status');
+      if (context === activeForm && status)
+        status.textContent = t(
+          'Save is unavailable. Download your PDF draft.',
+          'No se puede guardar. Descarga tu borrador PDF.',
+        );
+    }
+  }, 750);
 }
 
 function openForm(noticeId, requestId) {
   const notice = noticeById(noticeId);
   if (!notice) return;
+  formAssistant.reset();
   const assistance = getFormAssistance(notice, requestId);
   const draft = createFormDraft(assistance);
   notice.formDrafts ||= [];
@@ -521,8 +633,9 @@ function openForm(noticeId, requestId) {
 function showActiveForm() {
   const record = formRecord();
   if (!record) return;
+  formAssistant.capture();
   showModal(
-    modalHead(t('Prepare your requested item', 'Prepara lo solicitado')) +
+    modalHead(t('Complete your form with Anchor', 'Completa tu formulario con Anchor')) +
       renderFormAssistance({
         assistance: activeForm.assistance,
         draft: activeForm.draft,
@@ -531,6 +644,7 @@ function showActiveForm() {
         previewPages: activeForm.previewPages,
         previewLabel: record.filename,
         hasAttachedForm: Boolean(record.attachmentId),
+        assistantHtml: formAssistant.view(),
         lang: state.lang,
       }),
     true,
@@ -556,37 +670,73 @@ function showActiveForm() {
   renderActiveFormPage();
 }
 
-async function renderActiveFormPage() {
+function renderActiveFormPage() {
   const context = activeForm,
     record = formRecord(context),
     canvas = $('#form-preview-canvas');
   if (!canvas || !record) return;
   const token = ++formPreviewGeneration;
-  try {
-    const documents = await import('./form-documents.js');
-    let bytes;
-    if (record.attachmentId) {
-      const attached = await readFileAttachment(record.attachmentId);
-      const blob = attached?.blob || attached;
-      if (!blob?.arrayBuffer) throw new Error('Attach the actual form again to preview it.');
-      bytes = new Uint8Array(await blob.arrayBuffer());
-    } else bytes = await documents.loadOfficialForm(context.assistance.form);
-    if (token !== formPreviewGeneration || context !== activeForm || !canvas.isConnected) return;
-    const pages = await documents.renderFormPage(bytes, canvas, context.previewPage);
-    if (token !== formPreviewGeneration || context !== activeForm) return;
-    context.previewPages = pages;
-    context.previewPage = Math.min(pages, context.previewPage);
-    const status = $('#form-preview-status');
-    if (status)
-      status.textContent = record.attachmentId
-        ? t('Your attached form · read locally', 'Tu formulario adjunto · lectura local')
-        : t('Official blank · read locally', 'Formulario oficial · lectura local');
-  } catch (error) {
-    if (token === formPreviewGeneration) {
-      const status = $('#form-preview-status');
-      if (status) status.textContent = error.message;
-    }
-  }
+  // PDF.js does not allow overlapping render tasks on the same canvas. Stale
+  // queued work is skipped before loading/filling the next local document.
+  formPreviewQueue = formPreviewQueue
+    .catch(() => {})
+    .then(async () => {
+      if (token !== formPreviewGeneration || context !== activeForm || !canvas.isConnected) return;
+      try {
+        const documents = await import('./form-documents.js');
+        let bytes;
+        if (record.attachmentId) {
+          const attached = await readFileAttachment(record.attachmentId);
+          const blob = attached?.blob || attached;
+          if (!blob?.arrayBuffer) throw new Error('Attach the actual form again to preview it.');
+          bytes = new Uint8Array(await blob.arrayBuffer());
+        } else if (context.assistance.form?.fillable) {
+          bytes = await documents.fillOfficialForm(
+            context.assistance.form,
+            toPdfFieldValues(context.assistance, context.draft),
+          );
+        } else bytes = await documents.loadOfficialForm(context.assistance.form);
+        if (token !== formPreviewGeneration || context !== activeForm || !canvas.isConnected)
+          return;
+        const pages = await documents.renderFormPage(
+          bytes,
+          canvas,
+          context.previewPage,
+          $('#form-preview-text-layer'),
+        );
+        if (token !== formPreviewGeneration || context !== activeForm) return;
+        context.previewPages = pages;
+        context.previewPage = Math.min(pages, context.previewPage);
+        canvas.dataset.previewGeneration = String(token);
+        const label = modal.querySelector('[data-form-page-label]');
+        if (label) label.textContent = `${t('Page', 'Página')} ${context.previewPage} / ${pages}`;
+        for (const [selector, offset] of [
+          ['[data-form-page-prev]', -1],
+          ['[data-form-page-next]', 1],
+        ]) {
+          const button = modal.querySelector(selector);
+          if (button) {
+            button.dataset.page = String(context.previewPage + offset);
+            button.disabled =
+              context.previewPage + offset < 1 || context.previewPage + offset > pages;
+          }
+        }
+        const status = $('#form-preview-status');
+        if (status)
+          status.textContent = record.attachmentId
+            ? t('Your attached form · read locally', 'Tu formulario adjunto · lectura local')
+            : t(
+                'Official form · answers updated locally',
+                'Formulario oficial · respuestas actualizadas aquí',
+              );
+      } catch (error) {
+        if (token === formPreviewGeneration) {
+          const status = $('#form-preview-status');
+          if (status) status.textContent = error.message;
+        }
+      }
+    });
+  return formPreviewQueue;
 }
 
 function calendarPage() {
@@ -950,7 +1100,7 @@ function evidence() {
   );
 }
 function support() {
-  const c = COUNTIES[state.county];
+  const c = { ...COUNTIES[state.county], ...COUNTY_SERVICES[state.county] };
   return (
     head(
       t('A real person.<br>A clearer answer.', 'Una persona real.<br>Una respuesta m\xE1s clara.'),
@@ -961,7 +1111,7 @@ function support() {
       t('GET SUPPORT', 'OBTENER AYUDA'),
       false,
     ) +
-    `<label class="select-wrap">${t('Show resources for', 'Mostrar recursos de')}<select id="county"><option value="santa-clara" ${state.county === 'santa-clara' ? 'selected' : ''}>Santa Clara County</option><option value="san-mateo" ${state.county === 'san-mateo' ? 'selected' : ''}>San Mateo County</option></select></label><div class="support-grid"><section class="panel support-card">${icon('phone', 28)}<h2>${t('Start with your county.', 'Empieza por tu condado.')}</h2><p>${t('If your letter lists a worker\u2019s number, start there. Otherwise, these official contact details can help.', 'Si tu aviso incluye el tel\xE9fono de un trabajador, empieza all\xED. Estos datos oficiales tambi\xE9n pueden ayudarte.')}</p><div class="contact-detail"><span>${e(c.name)}</span><a href="${e(c.phoneHref)}">${e(c.phone)}</a></div><div class="contact-detail"><span>${t('Published hours', 'Horario publicado')}</span>${e(c.hours)}</div><div class="contact-detail"><span>${t('Office', 'Oficina')}</span>${e(c.address)}</div>${ext(c.helpUrl, t('County contact options', 'Opciones de contacto'))}<p class="hint">${t('You can ask for language assistance or an accommodation. Confirm office availability before traveling.', 'Puedes solicitar ayuda con el idioma o una adaptaci\xF3n. Verifica la disponibilidad antes de viajar.')}</p></section><section class="panel support-card">${icon('globe', 28)}<h2>${t('Use the official channel.', 'Usa el canal oficial.')}</h2><p>${t('BenefitsCal is the official portal for applying, renewing, and managing supported California benefits. Sign in there to submit or check your case.', 'BenefitsCal es el portal oficial para solicitar, renovar y administrar beneficios compatibles de California. Inicia sesi\xF3n all\xED para enviar documentos o revisar tu caso.')}</p>${ext(c.applyUrl, t('Open BenefitsCal', 'Abrir BenefitsCal'), 'button')}<div class="source-info gap-top">${t('Need help explaining the situation? Download a summary of your notices, checked dates, outstanding requests, and submission records.', '\xBFNecesitas explicar la situaci\xF3n? Descarga un resumen de avisos, fechas verificadas, solicitudes pendientes y registros de env\xEDo.')}</div><button class="button light full-width gap-top" data-action="handoff">${icon('download', 14)}${t('Create a navigator handoff', 'Crear un resumen para un asesor')}</button></section></div><section class="panel sources-panel"><h2>${t('Clear steps start with reliable sources.', 'Los pasos claros empiezan con fuentes confiables.')}</h2><p class="body-text" style="margin-bottom:15px">${t('Official resources behind this prototype. Your own notice remains the source for your case-specific requests.', 'Recursos oficiales de este prototipo. Tu propio aviso sigue siendo la fuente de las solicitudes de tu caso.')}</p>${SOURCES.map((s) => `<div class="source-resource">${icon('link', 15)}<div><strong>${e(s.title)}</strong><p>${e(s.description)}</p><a href="${e(s.url)}" target="_blank" rel="noopener noreferrer">${t('View official source', 'Ver fuente oficial')}${icon('external', 10)}</a><small>${t('Checked', 'Consultado')} ${e(s.checkedAt)}</small></div></div>`).join('')}</section>`
+    `<label class="select-wrap">${t('Show resources for', 'Mostrar recursos de')}<select id="county"><option value="santa-clara" ${state.county === 'santa-clara' ? 'selected' : ''}>Santa Clara County</option><option value="san-mateo" ${state.county === 'san-mateo' ? 'selected' : ''}>San Mateo County</option></select></label><div class="support-grid"><section class="panel support-card">${icon('phone', 28)}<h2>${t('Start with your county.', 'Empieza por tu condado.')}</h2><p>${t('If your letter lists a worker\u2019s number, start there. Otherwise, these official contact details can help.', 'Si tu aviso incluye el tel\xE9fono de un trabajador, empieza all\xED. Estos datos oficiales tambi\xE9n pueden ayudarte.')}</p><div class="contact-detail"><span>${e(c.name)}</span><a href="${e(c.phoneHref)}">${e(c.phone)}</a></div><p class="hint">${e(c.agency)}</p>${ext(c.helpUrl, t('County contact options', 'Opciones de contacto'))} ${ext(c.officeLocationsUrl, t('Office locations & document options', 'Oficinas y opciones de documentos'))}<p class="hint">${t('You can ask for language assistance or an accommodation. Confirm office availability before traveling.', 'Puedes solicitar ayuda con el idioma o una adaptaci\xF3n. Verifica la disponibilidad antes de viajar.')}</p></section><section class="panel support-card">${icon('globe', 28)}<h2>${t('Use the official channel.', 'Usa el canal oficial.')}</h2><p>${t('BenefitsCal is the official portal for applying, renewing, and managing supported California benefits. Sign in there to submit or check your case.', 'BenefitsCal es el portal oficial para solicitar, renovar y administrar beneficios compatibles de California. Inicia sesi\xF3n all\xED para enviar documentos o revisar tu caso.')}</p>${ext(c.applyUrl, t('Open BenefitsCal', 'Abrir BenefitsCal'), 'button')}<div class="source-info gap-top">${t('Need help explaining the situation? Download a summary of your notices, checked dates, outstanding requests, and submission records.', '\xBFNecesitas explicar la situaci\xF3n? Descarga un resumen de avisos, fechas verificadas, solicitudes pendientes y registros de env\xEDo.')}</div><button class="button light full-width gap-top" data-action="handoff">${icon('download', 14)}${t('Create a navigator handoff', 'Crear un resumen para un asesor')}</button></section></div><section class="panel sources-panel"><h2>${t('Clear steps start with reliable sources.', 'Los pasos claros empiezan con fuentes confiables.')}</h2><p class="body-text" style="margin-bottom:15px">${t('Official resources behind this prototype. Your own notice remains the source for your case-specific requests.', 'Recursos oficiales de este prototipo. Tu propio aviso sigue siendo la fuente de las solicitudes de tu caso.')}</p>${SOURCES.map((s) => `<div class="source-resource">${icon('link', 15)}<div><strong>${e(s.title)}</strong><p>${e(s.description)}</p><a href="${e(s.url)}" target="_blank" rel="noopener noreferrer">${t('View official source', 'Ver fuente oficial')}${icon('external', 10)}</a><small>${t('Checked', 'Consultado')} ${e(s.checkedAt)}</small></div></div>`).join('')}</section>`
   );
 }
 function about() {
@@ -975,7 +1125,8 @@ function about() {
       t('ABOUT ANCHOR', 'ACERCA DE ANCHOR'),
       false,
     ) +
-    `<section class="panel about-hero"><div class="eyebrow">${t('WHY ANCHOR EXISTS', 'POR QU\xC9 EXISTE ANCHOR')}</div><h2>${t('Essential support shouldn\u2019t get lost in the paperwork.', 'El apoyo esencial no deber\xEDa perderse entre papeles.')}</h2><p>${t('Anchor helps you understand a benefit letter, check its dates and requests, prepare your next steps, and preserve a record of what you send. Every extracted step has a connection to the original text.', 'Anchor te ayuda a entender un aviso de beneficios, verificar sus fechas y solicitudes, preparar los siguientes pasos y conservar un registro de lo que env\xEDas. Cada paso identificado se vincula con el texto original.')}</p></section><div class="about-grid"><section class="panel about-card">${icon('eye', 24)}<h3>${t('See where it came from.', 'Consulta de d\xF3nde proviene.')}</h3><p>${t('A date or task links to its exact line in the letter. Uncertainty stays visible until you resolve it.', 'Cada fecha o tarea se vincula a una l\xEDnea del aviso. La incertidumbre queda visible hasta que la aclares.')}</p></section><section class="panel about-card">${icon('lock', 24)}<h3>${t('Stay in control.', 'Mant\xE9n el control.')}</h3><p>${t('PDFs and images are read locally. Sign in to save letters, progress, originals, and receipts privately to your account. Guest records stay on this device.', 'Los PDFs e imágenes se leen localmente. Inicia sesión para guardar avisos, progreso, originales y recibos en tu cuenta privada. Los datos de invitado quedan aquí.')}</p></section><section class="panel about-card">${icon('heart', 24)}<h3>${t('Get a human answer.', 'Obt\xE9n una respuesta humana.')}</h3><p>${t('Make a handoff with the original wording, questions, and submission records. A county worker can help clarify what the app cannot.', 'Crea un resumen con el texto original, preguntas y registros de env\xEDo. Un trabajador del condado puede aclarar lo que la aplicaci\xF3n no puede.')}</p></section></div><section class="panel settings-list"><h2 style="font-size:18px;margin-bottom:5px">${t('Your workspace, your choice.', 'Tu espacio, tu decisi\xF3n.')}</h2><div class="setting"><div><h3>${t('Practice with fictional notices', 'Practicar con avisos ficticios')}</h3><p>${t('Explore the full workflow in a separate sample workspace. Dates in the sample use an October 9, 2026 reference clock.', 'Explora todo el proceso en un espacio de pr\xE1ctica separado. Las fechas de pr\xE1ctica usan el 9 de octubre de 2026 como referencia.')}</p></div><button class="button light small" data-action="switch-mode">${state.mode === 'demo' ? t('Go to my workspace', 'Ir a mi espacio') : t('Explore the sample', 'Explorar el ejemplo')}</button></div><div class="setting"><div><h3>${t('Take a copy with you', 'Conservar una copia')}</h3><p>${t('Download your workspace text and progress as a JSON backup. Receipt files are separate; download important originals too.', 'Descarga el texto y progreso como copia JSON. Los recibos se guardan por separado; descarga tambi\xE9n los originales importantes.')}</p></div><button class="button light small" data-action="backup">${icon('download', 13)}${t('Download backup', 'Descargar copia')}</button></div><div class="setting"><div><h3>${t('Read the processing boundaries', 'Consultar los l\xEDmites')}</h3><p>${t('This prototype recognizes English CalFresh renewal and verification correspondence. It does not determine eligibility or submit applications.', 'Este prototipo reconoce correspondencia de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s. No determina elegibilidad ni env\xEDa solicitudes.')}</p></div><button class="button light small" data-action="privacy">${t('Privacy & scope', 'Privacidad y alcance')}</button></div><div class="setting"><div><h3>${t('Remove saved information', 'Eliminar informaci\xF3n guardada')}</h3><p>${t('Reset practice, clear guest data on this device, or delete your signed-in personal workspace. Download important records first.', 'Reinicia la práctica, borra datos locales de invitado o elimina tu espacio personal con sesión iniciada. Descarga primero lo importante.')}</p></div><button class="button light small" data-action="clear-data">${icon('trash', 13)}${t('Manage saved data', 'Administrar datos')}</button></div></section>`
+    `<section class="panel about-hero"><div class="eyebrow">${t('WHY ANCHOR EXISTS', 'POR QU\xC9 EXISTE ANCHOR')}</div><h2>${t('Essential support shouldn\u2019t get lost in the paperwork.', 'El apoyo esencial no deber\xEDa perderse entre papeles.')}</h2><p>${t('Anchor helps you understand a benefit letter, check its dates and requests, prepare your next steps, and preserve a record of what you send. Every extracted step has a connection to the original text.', 'Anchor te ayuda a entender un aviso de beneficios, verificar sus fechas y solicitudes, preparar los siguientes pasos y conservar un registro de lo que env\xEDas. Cada paso identificado se vincula con el texto original.')}</p></section><div class="about-grid"><section class="panel about-card">${icon('eye', 24)}<h3>${t('See where it came from.', 'Consulta de d\xF3nde proviene.')}</h3><p>${t('A date or task links to its exact line in the letter. Uncertainty stays visible until you resolve it.', 'Cada fecha o tarea se vincula a una l\xEDnea del aviso. La incertidumbre queda visible hasta que la aclares.')}</p></section><section class="panel about-card">${icon('lock', 24)}<h3>${t('Stay in control.', 'Mant\xE9n el control.')}</h3><p>${t('PDFs and images are read locally. Sign in to save letters, progress, originals, and receipts privately to your account. Guest records stay on this device.', 'Los PDFs e imágenes se leen localmente. Inicia sesión para guardar avisos, progreso, originales y recibos en tu cuenta privada. Los datos de invitado quedan aquí.')}</p></section><section class="panel about-card">${icon('heart', 24)}<h3>${t('Get a human answer.', 'Obt\xE9n una respuesta humana.')}</h3><p>${t('Make a handoff with the original wording, questions, and submission records. A county worker can help clarify what the app cannot.', 'Crea un resumen con el texto original, preguntas y registros de env\xEDo. Un trabajador del condado puede aclarar lo que la aplicaci\xF3n no puede.')}</p></section></div><section class="panel settings-list"><h2 style="font-size:18px;margin-bottom:5px">${t('Your workspace, your choice.', 'Tu espacio, tu decisi\xF3n.')}</h2><div class="setting"><div><h3>${t('Practice with fictional notices', 'Practicar con avisos ficticios')}</h3><p>${t('Explore the full workflow in a separate sample workspace. Dates in the sample use an October 9, 2026 reference clock.', 'Explora todo el proceso en un espacio de pr\xE1ctica separado. Las fechas de pr\xE1ctica usan el 9 de octubre de 2026 como referencia.')}</p></div><button class="button light small" data-action="switch-mode">${state.mode === 'demo' ? t('Go to my workspace', 'Ir a mi espacio') : t('Explore the sample', 'Explorar el ejemplo')}</button></div><div class="setting"><div><h3>${t('Take a copy with you', 'Conservar una copia')}</h3><p>${t('Download your workspace text and progress as a JSON backup. Receipt files are separate; download important originals too.', 'Descarga el texto y progreso como copia JSON. Los recibos se guardan por separado; descarga tambi\xE9n los originales importantes.')}</p></div><button class="button light small" data-action="backup">${icon('download', 13)}${t('Download backup', 'Descargar copia')}</button></div><div class="setting"><div><h3>${t('Read the processing boundaries', 'Consultar los l\xEDmites')}</h3><p>${t('This prototype recognizes English CalFresh renewal and verification correspondence. It does not determine eligibility or submit applications.', 'Este prototipo reconoce correspondencia de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s. No determina elegibilidad ni env\xEDa solicitudes.')}</p></div><button class="button light small" data-action="privacy">${t('Privacy & scope', 'Privacidad y alcance')}</button></div><div class="setting"><div><h3>${t('Remove saved information', 'Eliminar informaci\xF3n guardada')}</h3><p>${t('Reset practice, clear guest data on this device, or delete your signed-in personal workspace. Download important records first.', 'Reinicia la práctica, borra datos locales de invitado o elimina tu espacio personal con sesión iniciada. Descarga primero lo importante.')}</p></div><button class="button light small" data-action="clear-data">${icon('trash', 13)}${t('Manage saved data', 'Administrar datos')}</button></div></section>` +
+    coveragePanel()
   );
 }
 function render({ captureAssistant = true } = {}) {
@@ -1207,6 +1358,7 @@ async function handleClick(ev) {
   const a = btn.dataset.action;
   ev.preventDefault();
   try {
+    if (formAssistant.action(btn)) return;
     if (assistant.action(btn)) return;
     if (a === 'form-open') {
       openForm(btn.dataset.id, btn.dataset.task);
@@ -1221,6 +1373,7 @@ async function handleClick(ev) {
       const form = $('#form-assistance-draft');
       if (!form?.reportValidity() || !activeForm) return;
       const context = activeForm;
+      formAssistant.capture();
       await saveActiveForm();
       if (context !== activeForm || !formRecord(context)) return;
       if (a === 'form-section') {
@@ -1229,6 +1382,7 @@ async function handleClick(ev) {
           Math.min(context.assistance.sections.length - 1, Number(btn.dataset.section) || 0),
         );
         context.previewPage = context.assistance.sections[context.section].page;
+        formAssistant.choose(context.assistance.sections[context.section].id);
         showActiveForm();
         $('#form-assist-section-title')?.scrollIntoView({ block: 'nearest' });
       } else if (a === 'form-preview') {
@@ -1255,7 +1409,11 @@ async function handleClick(ev) {
           toPdfFieldValues(context.assistance, context.draft),
         );
         if (context !== activeForm || !formRecord(context)) return;
-        downloadFile('anchor-unsigned-cf37-draft.pdf', bytes, 'application/pdf');
+        downloadFile(
+          `anchor-unsigned-${context.assistance.form.id}-draft.pdf`,
+          bytes,
+          'application/pdf',
+        );
         toast(
           t(
             'Unsigned draft downloaded. Review every page and sign the actual form before returning it.',
@@ -1798,6 +1956,11 @@ app.addEventListener('submit', async (ev) => {
   await assistant.submit(ev.target);
 });
 modal.addEventListener('submit', async (ev) => {
+  if (ev.target.id === 'form-assistant-form') {
+    ev.preventDefault();
+    await formAssistant.submit(ev.target);
+    return;
+  }
   if (ev.target.id === 'form-assistance-draft') return;
   ev.preventDefault();
   if (busy) return;
@@ -1932,10 +2095,38 @@ modal.addEventListener('cancel', (ev) => {
 });
 modal.addEventListener('close', () => {
   activeForm = null;
+  clearTimeout(formPreviewTimer);
+  clearTimeout(formSaveTimer);
+  formAssistant.reset();
   formPreviewGeneration++;
   if (!calendarBusy) calendarPending = null;
   guide?.refresh();
   nextStepCue?.refresh();
+});
+modal.addEventListener('input', (ev) => {
+  if (ev.target.matches('[data-form-field]')) scheduleFormUpdate(ev.target);
+});
+modal.addEventListener('change', (ev) => {
+  if (ev.target.id === 'form-assistant-context-select') {
+    formAssistant.changeContext(ev.target.value);
+    return;
+  }
+  if (ev.target.matches('[data-form-field]')) {
+    scheduleFormUpdate(ev.target);
+    // Conditional follow-up questions become available as soon as an answer
+    // changes. Typed values have already been captured before replacing them.
+    if (ev.target.tagName === 'SELECT' || ev.target.type === 'checkbox') {
+      const id = ev.target.id;
+      showActiveForm();
+      document.getElementById(id)?.focus({ preventScroll: true });
+    }
+  }
+});
+modal.addEventListener('pointerup', (ev) => {
+  if (!ev.target.closest('[data-action="form-ask-selection"]')) formAssistant.captureSelection();
+});
+modal.addEventListener('pointerdown', (ev) => {
+  if (ev.target.closest('[data-action="form-ask-selection"]')) formAssistant.captureSelection();
 });
 modal.addEventListener('dragover', (ev) => {
   const drop = ev.target.closest('#drop-zone');
@@ -2044,6 +2235,7 @@ async function init() {
       calendarPending = null;
       calendarClient.clear();
       assistant.reset();
+      formAssistant.reset();
       state = saved?.demo ? saved : freshState();
       selected = null;
       highlightLine = null;
@@ -2056,6 +2248,7 @@ async function init() {
       if (accountInfo.user?.id !== snapshot.user?.id) {
         calendarClient.clear();
         assistant.reset();
+        formAssistant.reset();
       }
       signInTourPending ||= signedIn || reconnected;
       accountInfo = snapshot;

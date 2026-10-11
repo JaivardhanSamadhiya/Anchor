@@ -2481,3 +2481,74 @@ dialog::backdrop {
     color: #222;
   }
 }
+/* Reviewed service coverage remains compact, with detailed capabilities on demand. */
+.coverage-panel {
+  margin-bottom: 22px;
+  background: #f7faf3;
+}
+.coverage-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.coverage-heading h2 {
+  margin: 6px 0 12px;
+}
+.coverage-badge {
+  white-space: nowrap;
+  border-radius: 20px;
+  padding: 6px 12px;
+  background: #e7efdf;
+  color: #3e624d;
+  font-size: 12px;
+}
+.coverage-panel p {
+  max-width: 850px;
+  color: #536759;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.coverage-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
+  margin: 14px 0;
+}
+.coverage-panel summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.coverage-table-wrap {
+  overflow: auto;
+  margin: 12px 0;
+}
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.coverage-table caption {
+  text-align: left;
+  padding-bottom: 8px;
+}
+.coverage-table th,
+.coverage-table td {
+  padding: 10px;
+  border-bottom: 1px solid #dce5d8;
+  vertical-align: top;
+}
+.coverage-table th:first-child {
+  width: 40%;
+}
+@media (max-width: 480px) {
+  .coverage-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 12px;
+  }
+}

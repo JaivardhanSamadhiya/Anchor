@@ -102,7 +102,7 @@ test(
       );
       await page.locator('[data-action="form-open"][data-id="demo-renewal"]').first().click();
       await page.locator('#form-assistance-draft').waitFor();
-      await page.locator('#form-preview-status').filter({ hasText: 'Official blank' }).waitFor();
+      await page.locator('#form-preview-status').filter({ hasText: 'Official form' }).waitFor();
       assert.match(await page.locator('.form-assist-viewer-head').innerText(), /Page 8 \/ 11/);
       assert.equal(
         await page

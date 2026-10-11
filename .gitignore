@@ -16,8 +16,10 @@ web/config.js*
 web/next-step-cue.js*
 web/form-assistance.js*
 web/form-assistance-view.js*
+web/form-assistant-controller.js*
 web/form-documents.js*
 web/program-assistant.js*
+web/district-services.js*
 web/google-calendar.js*
 web/google-calendar-client.js*
 __pycache__/
