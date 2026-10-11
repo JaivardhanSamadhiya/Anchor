@@ -4,7 +4,10 @@
  * enums. No arbitrary question, notice, draft answer, file, or account profile
  * can become Gemini input, even if a caller bypasses the UI.
  */
-export const SOURCE_VERSION = '2026-10-10';
+import { parseFormContext, publicFormKnowledge, type FormContext } from './form-policy.ts';
+export * from './form-policy.ts';
+
+export const SOURCE_VERSION = '2026-10-11';
 export const PROGRAM_IDS = [
   'calfresh',
   'medi-cal',
@@ -65,6 +68,7 @@ export interface AssistantRequest {
   language: AssistantLanguage;
   adultConfirmed: true;
   destination?: NavigationPage;
+  formContext?: FormContext;
 }
 export interface Citation {
   id: string;
@@ -299,6 +303,22 @@ const COMPARISONS: Partial<Record<FocusId, readonly ProgramId[]>> = {
 };
 
 function knowledgeForRequest(request: AssistantRequest): ProgramKnowledge {
+  if (request.formContext) {
+    const form = publicFormKnowledge(request.formContext);
+    const translated = publicFormKnowledge(request.formContext, 'es');
+    if (form && translated)
+      return {
+        label: form.label,
+        summary: `${form.question}\n\n${form.guidance}`,
+        summaryEs: `Texto del formulario oficial: ${form.question}\n\n${translated.guidance}`,
+        sources: form.sources,
+        facts: [
+          `[${form.sources[0].id}] Official form ${form.label}, revision ${form.revision}, section ${form.section}. Public question or instruction: ${form.question}`,
+          `[${form.sources.at(-1)!.id}] Reviewed form guidance: ${form.guidance}`,
+          `[${form.sources[0].id}] Ask the county about case-specific applicability, current rules, reporting periods, dates and missing proof. A saved draft is unsigned and not submitted. Never guess a resident answer or perform a calculation.`,
+        ],
+      };
+  }
   const pair = request.questionId === 'compare' ? COMPARISONS[request.focus] : undefined;
   if (!pair) return PROGRAM_KNOWLEDGE[request.program];
   const entries = pair.map((id) => PROGRAM_KNOWLEDGE[id]);
@@ -334,13 +354,21 @@ const validMember = <T extends string>(value: unknown, values: readonly T[]): va
 export function parseAssistantRequest(value: unknown): AssistantRequest | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const data = value as Record<string, unknown>;
-  const allowed = ['program', 'questionId', 'focus', 'language', 'adultConfirmed', 'destination'];
+  const allowed = [
+    'program',
+    'questionId',
+    'focus',
+    'language',
+    'adultConfirmed',
+    'destination',
+    'formContext',
+  ];
   if (Object.keys(data).some((key) => !allowed.includes(key))) return null;
   if (
     !validMember(data.program, PROGRAM_IDS) ||
     !validMember(data.questionId, QUESTION_IDS) ||
     !validMember(data.focus, FOCUS_IDS) ||
-    !['en', 'es'].includes(String(data.language)) ||
+    (data.language !== 'en' && data.language !== 'es') ||
     data.adultConfirmed !== true
   )
     return null;
@@ -352,6 +380,16 @@ export function parseAssistantRequest(value: unknown): AssistantRequest | null {
   const pair = COMPARISONS[data.focus];
   if (data.questionId === 'compare' ? !pair?.includes(data.program) : pair !== undefined)
     return null;
+  let formContext: FormContext | null = null;
+  if (data.formContext !== undefined) {
+    formContext = parseFormContext(data.formContext);
+    if (
+      !formContext ||
+      data.program !== 'calfresh' ||
+      data.questionId !== (formContext.formId === 'cf37' ? 'renew' : 'reporting')
+    )
+      return null;
+  }
   return {
     program: data.program,
     questionId: data.questionId,
@@ -359,7 +397,32 @@ export function parseAssistantRequest(value: unknown): AssistantRequest | null {
     language: data.language as AssistantLanguage,
     adultConfirmed: true,
     ...(data.destination ? { destination: data.destination as NavigationPage } : {}),
+    ...(formContext ? { formContext } : {}),
   };
+}
+
+/** Build an enum-only form request; no draft answer or selected text is accepted. */
+export function createFormContextRequest(
+  context: unknown,
+  language: AssistantLanguage = 'en',
+  adultConfirmed = true,
+): AssistantRequest | null {
+  const formContext = parseFormContext(context);
+  if (!formContext) return null;
+  const focus: FocusId =
+    formContext.sectionId === 'income'
+      ? 'income'
+      : formContext.sectionId === 'household'
+        ? 'household'
+        : 'general';
+  return parseAssistantRequest({
+    program: 'calfresh',
+    questionId: formContext.formId === 'cf37' ? 'renew' : 'reporting',
+    focus,
+    language,
+    adultConfirmed,
+    formContext,
+  });
 }
 
 export interface LocalQuestion {
@@ -533,6 +596,7 @@ const publicCaveat = (language: AssistantLanguage) =>
     : 'Check the instructions and dates in your notice with the agency. Anchor does not decide eligibility or submit applications.';
 const navigationFor = (request: AssistantRequest) => {
   const page =
+    (request.formContext ? 'forms' : undefined) ||
     request.destination ||
     (request.questionId === 'status' ||
     request.questionId === 'appeal' ||
@@ -547,6 +611,15 @@ const navigationFor = (request: AssistantRequest) => {
 
 export function sourceGuidance(request: AssistantRequest, message?: string): AssistantResponse {
   const knowledge = knowledgeForRequest(request);
+  if (request.formContext)
+    return {
+      mode: 'source-guidance',
+      answer: `${request.language === 'es' ? knowledge.summaryEs : knowledge.summary}\n\n${publicCaveat(request.language)}`,
+      citations: knowledge.sources.map((item) => ({ ...item })),
+      navigation: navigationFor(request),
+      sourceVersion: SOURCE_VERSION,
+      ...(message ? { message } : {}),
+    };
   const focusAdvice =
     request.language === 'es'
       ? {
@@ -623,21 +696,35 @@ export function sourceGuidance(request: AssistantRequest, message?: string): Ass
 
 export function geminiPrompt(request: AssistantRequest): string {
   const knowledge = knowledgeForRequest(request);
+  const form = request.formContext ? publicFormKnowledge(request.formContext) : null;
   return JSON.stringify({
-    task: QUESTION_LABELS[request.questionId],
+    task: form?.task || QUESTION_LABELS[request.questionId],
     focus: FOCUS_LABELS[request.focus],
     program: knowledge.label,
     language: request.language === 'es' ? 'Spanish' : 'English',
     requestedDestination: request.destination || null,
     sourceVersion: SOURCE_VERSION,
     sourceFacts: knowledge.facts,
+    sourceUrls: knowledge.sources.map(({ id, title, url }) => ({ id, title, url })),
+    ...(form
+      ? {
+          publicForm: {
+            formId: request.formContext!.formId,
+            sectionId: request.formContext!.sectionId,
+            ...(request.formContext!.fieldId ? { fieldId: request.formContext!.fieldId } : {}),
+            revision: form.revision,
+            question: form.question,
+            guidance: form.guidance,
+          },
+        }
+      : {}),
     allowedCitations: knowledge.sources.map((item) => item.id),
     allowedNavigation: NAVIGATION_PAGES,
   });
 }
 
 export const GEMINI_SYSTEM_INSTRUCTION =
-  'You explain public benefit-program processes and Anchor navigation. The input is a trusted, reconstructed public topic, not a personal case. Use ONLY the provided sourceFacts. Do not add eligibility thresholds, amounts, deadlines, personal decisions, legal/medical advice, promises, or facts from memory. If facts are insufficient, say what the agency needs to clarify. Answer in the requested language, in plain short paragraphs with practical next steps. Do not output URLs, HTML, markdown links, code, or numeric amounts/dates. Cite only provided source IDs that support the answer. For navigation no citation is needed; for program explanations include at least one allowed source ID. Suggest only an allowed page. Suggestions never execute actions. Return JSON {answer: string, citationIds: string[], navigationPage: string}. Maximum answer about 250 words. End program guidance with a reminder that the agency determines eligibility and applicable dates.';
+  'You are Anchor AI. Explain public benefit-program processes, reviewed official form questions and Anchor navigation. The input is a trusted, reconstructed public topic, not a personal case. Use ONLY the provided sourceFacts and publicForm wording/guidance. For a form request, explain the selected question, relevant reporting period, requested columns, and proof in practical plain language according to the task. Explain gross income as before deductions when supported; never choose yes/no, invent resident facts, complete an answer, calculate income or expenses, or claim that an old form revision sets current work rules. Do not add eligibility thresholds, amounts, deadlines, personal decisions, legal/medical advice, promises, or facts from memory. If facts are insufficient, say what the agency needs to clarify. Answer in the requested language, in plain short paragraphs with practical next steps. Do not output URLs, HTML, markdown links, code, or numeric amounts/dates. Cite only provided source IDs that support the answer. For navigation no citation is needed; for program/form explanations include at least one allowed source ID. Suggest only an allowed page, preferring forms for form help. Suggestions never execute actions. Return JSON {answer: string, citationIds: string[], navigationPage: string}. Maximum answer about 250 words. End program guidance with a reminder that the agency determines eligibility and applicable dates.';
 
 /** Reject malformed output and invented citations/links instead of displaying it. */
 export function normalizeGeminiResponse(

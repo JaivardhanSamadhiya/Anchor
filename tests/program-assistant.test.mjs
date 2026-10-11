@@ -119,7 +119,7 @@ test('cloud schemas reject text, documents, malformed intents, and missing age c
   const reconstructed = JSON.parse(policy.geminiPrompt(publicTopic()));
   assert.equal(reconstructed.focus, policy.FOCUS_LABELS['proof-alternatives']);
   assert.ok(reconstructed.sourceFacts.length > 0);
-  assert.equal(reconstructed.sourceVersion, '2026-10-10');
+  assert.equal(reconstructed.sourceVersion, policy.SOURCE_VERSION);
 });
 
 test('paired-program questions retrieve both authoritative packs and only approved comparisons', () => {
@@ -162,6 +162,145 @@ test('paired-program questions retrieve both authoritative packs and only approv
     policy.parseAssistantRequest({ ...publicTopic(), program: 'ssi', focus: 'ssi-vs-ssdi' }),
     null,
   );
+});
+
+test('reviewed form contexts reconstruct real public questions and reject resident data', () => {
+  const context = { formId: 'cf37', sectionId: 'housing', fieldId: 'rent', help: 'how-to-answer' };
+  const topic = policy.createFormContextRequest(context, 'en');
+  assert.equal(topic.program, 'calfresh');
+  assert.equal(topic.questionId, 'renew');
+  assert.deepEqual(topic.formContext, context);
+  const prompt = JSON.parse(policy.geminiPrompt(topic));
+  assert.equal(prompt.publicForm.question, 'Your rent or mortgage per month now?');
+  assert.match(prompt.publicForm.guidance, /current monthly rent/);
+  assert.match(prompt.publicForm.guidance, /housing-change condition/);
+  assert.deepEqual(prompt.allowedCitations, ['cf37']);
+  assert.equal(prompt.sourceUrls[0].url, policy.FORM_KNOWLEDGE.cf37.sources[0].url);
+  assert.match(policy.formContextPreview(context), /Rent or mortgage/);
+  assert.equal(policy.sourceGuidance(topic).navigation.page, 'forms');
+  assert.ok(policy.parseAssistantResponse(policy.sourceGuidance(topic), topic));
+  const sar7 = policy.createFormContextRequest(
+    {
+      formId: 'sar7b',
+      sectionId: 'income',
+      fieldId: 'incomeProof',
+      help: 'documents',
+    },
+    'es',
+  );
+  assert.equal(sar7.questionId, 'reporting');
+  assert.equal(sar7.focus, 'income');
+  const sarPrompt = JSON.parse(policy.geminiPrompt(sar7));
+  assert.match(sarPrompt.publicForm.question, /attach proof/);
+  assert.match(sarPrompt.publicForm.guidance, /before deductions/);
+  assert.match(sarPrompt.publicForm.guidance, /missing-proof/);
+  assert.ok(sarPrompt.allowedCitations.includes('sar7ab'));
+  assert.ok(policy.parseAssistantResponse(policy.sourceGuidance(sar7), sar7));
+  for (const invalid of [
+    null,
+    [],
+    'cf37',
+    { ...context, formId: 'invented' },
+    { ...context, sectionId: 'resources' },
+    { ...context, fieldId: 'q7' },
+    { ...context, fieldId: 'private typed value' },
+    { ...context, help: 'decide-eligibility' },
+    { ...context, answer: 'fictional personal answer' },
+    { ...context, selectedText: 'notice excerpt' },
+    { ...context, formId: { id: 'cf37' } },
+    { ...context, fieldId: null },
+    { ...context, sectionId: '__proto__' },
+  ]) {
+    assert.equal(policy.parseFormContext(invalid), null);
+    assert.equal(policy.parseAssistantRequest({ ...topic, formContext: invalid }), null);
+  }
+  assert.equal(policy.createFormContextRequest(context, 'en', false), null);
+  assert.equal(policy.parseAssistantRequest({ ...topic, questionId: 'overview' }), null);
+  assert.equal(policy.parseAssistantRequest({ ...topic, program: 'medi-cal' }), null);
+  assert.equal(
+    policy.parseAssistantRequest({ ...topic, language: { toString: () => 'en' } }),
+    null,
+  );
+  const sectionOnly = { formId: 'sar7b', sectionId: 'expenses', help: 'meaning' };
+  assert.ok(policy.createFormContextRequest(sectionOnly));
+  assert.ok(policy.parseFormContext(sectionOnly));
+  const response = policy.normalizeGeminiResponse(
+    {
+      answer:
+        'Use the housing-change condition and enter the current monthly rent or mortgage in the official form. The county determines the applicable requirements and dates.',
+      citationIds: ['cf37'],
+      navigationPage: 'forms',
+    },
+    topic,
+  );
+  assert.ok(policy.parseAssistantResponse(response, topic));
+  assert.equal(
+    policy.normalizeGeminiResponse(goodModel(), topic),
+    null,
+    'Form help must cite the selected form, not an unrelated program pack',
+  );
+});
+
+test('form cloud transport includes only server-reviewed wording and never accepts draft or PDF selection text', async () => {
+  const topic = policy.createFormContextRequest({
+    formId: 'cf37',
+    sectionId: 'income',
+    fieldId: 'q7',
+    help: 'how-to-answer',
+  });
+  const calls = [];
+  const send = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith('/auth/v1/user'))
+      return json({ id: userA, email: 'private@example.invalid' });
+    if (String(url).endsWith('/anchor_assistant_consume_quota')) return json({ allowed: true });
+    return json({
+      candidates: [
+        {
+          finishReason: 'STOP',
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  answer:
+                    'List each job and use gross income before deductions, following the official form columns. Attach requested proof or ask the county for help. The county decides requirements and dates.',
+                  citationIds: ['cf37'],
+                  navigationPage: 'forms',
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+  };
+  const handler = createAssistantHandler(config(), send);
+  assert.equal(
+    (
+      await handler(
+        request({
+          ...topic,
+          formContext: { ...topic.formContext, answer: 'fictional private amount' },
+        }),
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await handler(request({ ...topic, selectedText: 'private PDF selection' }))).status,
+    400,
+  );
+  assert.equal(calls.length, 0);
+  const result = await (await handler(request(topic))).json();
+  assert.equal(result.mode, 'gemini');
+  assert.ok(policy.parseAssistantResponse(result, topic));
+  const payload = JSON.parse(calls[2].init.body);
+  const prompt = JSON.parse(payload.contents[0].parts[0].text);
+  assert.match(prompt.publicForm.question, /income from a job/);
+  assert.match(prompt.sourceFacts.join(' '), /gross income before deductions/);
+  assert.ok(!calls[2].init.body.includes(userA));
+  assert.ok(!calls[2].init.body.includes('private@example.invalid'));
+  assert.ok(!calls[2].init.body.includes('fictional private amount'));
 });
 
 test('model response validation resolves only curated sources and safe navigation', () => {
@@ -349,7 +488,7 @@ test('Edge handler fails closed for quotas and labels source fallbacks honestly'
     assert.equal(response.status, 200);
     const result = await response.json();
     assert.equal(result.mode, 'source-guidance');
-    assert.ok(result.message.includes('Gemini'));
+    assert.ok(result.message.includes('Anchor AI'));
     assert.ok(result.citations.every((item) => item.url.includes('.gov/')));
   }
   const missingKey = await createAssistantHandler(

@@ -152,7 +152,7 @@ export function createAssistantHandler(
         200,
         sourceGuidance(
           input,
-          'Gemini is not configured. This answer uses the saved official-source guide.',
+          'Anchor AI is not configured. This answer uses the saved official-source guide.',
         ),
       );
     try {
@@ -221,7 +221,7 @@ export function createAssistantHandler(
           200,
           sourceGuidance(
             input,
-            'Gemini is temporarily unavailable. This answer uses the saved official-source guide.',
+            'Anchor AI is temporarily unavailable. This answer uses the saved official-source guide.',
           ),
         );
       const payload = await parsedJson(generated);
@@ -247,7 +247,7 @@ export function createAssistantHandler(
         200,
         sourceGuidance(
           input,
-          'Gemini could not provide a checked response. This answer uses the saved official-source guide.',
+          'Anchor AI could not provide a checked response. This answer uses the saved official-source guide.',
         ),
       );
     }
