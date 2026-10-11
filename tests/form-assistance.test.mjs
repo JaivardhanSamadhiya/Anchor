@@ -65,7 +65,7 @@ test('draft validation limits fields, rejects invalid money and preserves no inf
   assert.equal(draft.answers.hiddenUnknown, undefined);
   assert.equal(draft.answers.signature, undefined);
   assert.equal(draft.updatedAt, '2026-10-10T11:00:00Z');
-  assert.deepEqual(assessFormDraft(assist, draft), { answered: 2, questions: 36, needsHelp: 0, signed: false, submitted: false, status: 'draft' });
+  assert.deepEqual(assessFormDraft(assist, draft), { answered: 2, questions: 34, needsHelp: 0, signed: false, submitted: false, status: 'draft' });
 });
 
 test('conditional details are retained as notes but excluded from PDF and summary when no longer applicable', () => {
@@ -113,20 +113,44 @@ test('all mapped field names and types exist in the actual official PDF; export 
   assert.equal(exported.getForm().getTextField('case_name').getText(), 'Fictional draft');
   assert.equal(exported.getForm().getTextField('case_name_header').getText(), 'Fictional draft');
   assert.equal(exported.getForm().getCheckBox('question1-1').isChecked(), true);
-  assert.ok(!mapped.some((field) => /signed|signature/.test(field.name)));
+  assert.ok(!mapped.some((field) => /signed_date|signature/i.test(field.name)));
   assert.equal(exported.getForm().getTextField('signed_date').getText(), undefined);
   assert.equal(assessFormDraft(assist, draft).signed, false);
   assert.match(formDraftSummary(assist, draft), /DRAFT \/ UNSIGNED \/ NOT SUBMITTED/);
 });
 
-test('SAR7B and unsupported forms export useful notes without promising field mapping', () => {
+test('SAR7B fills verified official fields and retains earlier freeform drafts for explicit transfer', () => {
   const assist = getFormAssistance(notice({ sourceText: 'CalFresh SAR 7', requests: [{ id: 'sar', kind: 'form', title: 'Complete SAR 7', status: 'todo' }] }));
   const draft = updateFormDraft(assist, createFormDraft(assist), { reportMonth: 'September 2026', incomeDetails: 'Fictional job example' });
-  assert.equal(assist.form.fillable, false);
-  assert.equal(toPdfFieldValues(assist, draft).length, 0);
+  assert.equal(assist.form.fillable, true);
+  assert.ok(toPdfFieldValues(assist, draft).some((field) => field.name === 'SAR7  10' && field.value === 'September 2026'));
+  assert.deepEqual(draft.legacyNotes, { incomeDetails: 'Fictional job example' });
   assert.match(formDraftSummary(assist, draft), /September 2026/);
-  assert.match(renderFormAssistance({ assistance: assist, draft }), /Download notes/);
-  assert.doesNotMatch(renderFormAssistance({ assistance: assist, draft }), /data-action="form-export-pdf"/);
+  assert.match(formDraftSummary(assist, draft), /Earlier saved preparation notes/);
+  assert.match(renderFormAssistance({ assistance: assist, draft }), /data-action="form-export-pdf"/);
+});
+
+test('earlier CF37 table notes survive schema upgrades without guessed table cell mappings', () => {
+  const assist = getFormAssistance(notice());
+  const saved = { ...createFormDraft(assist), answers: { caseName: 'Resident', jobDetails: 'Old employer and dates', householdDetails: 'Older household table' } };
+  const upgraded = updateFormDraft(assist, saved, { caseName: 'Updated' });
+  assert.deepEqual(upgraded.legacyNotes, { householdDetails: 'Older household table', jobDetails: 'Old employer and dates' });
+  assert.deepEqual(domain.legacyFormNotes(upgraded).map((item) => item.value), ['Older household table', 'Old employer and dates']);
+  assert.equal(toPdfFieldValues(assist, upgraded).find((item) => item.name === 'case_name').value, 'Updated');
+  assert.ok(!toPdfFieldValues(assist, upgraded).some((item) => String(item.value).includes('Old employer')));
+  assert.deepEqual(updateFormDraft(assist, upgraded, {}).legacyNotes, upgraded.legacyNotes);
+});
+
+test('structured table answers target verified cells and page locations', () => {
+  const assist = getFormAssistance(notice());
+  const draft = updateFormDraft(assist, createFormDraft(assist), { q1: 'yes', member1Name: 'Ada Example', member1Change: 'in', member1MoveDate: '101026', q7: 'yes', job3Name: 'Ben Example', job3Frequency: 'monthly', job3Gross: '2500', q9: 'yes', medicalName: 'Ada Example', medicalAmount: '80', q13: 'yes', q13Who: 'Ben Example' });
+  const values = toPdfFieldValues(assist, draft);
+  assert.ok(values.some((item) => item.name === 'question1-1-3' && item.value === 'Ada Example'));
+  assert.ok(values.some((item) => item.name === 'question7-1-18-3' && item.value === true));
+  assert.ok(values.some((item) => item.name === 'question9-1-3' && item.value === '80'));
+  assert.equal(domain.officialFormFields('cf37').find((item) => item.id === 'q5').page, 9);
+  assert.equal(domain.officialFormFields('cf37').find((item) => item.id === 'additionalNotes').page, 7);
+  assert.ok(assist.sections.flatMap((section) => section.fields).filter((field) => field.kind !== 'checkbox').every((field) => field.pdfText || field.pdfChecks), 'guided form answers all have verified PDF mappings');
 });
 
 test('public source assets match their checked registry and remain same-origin', async () => {

@@ -135,6 +135,28 @@ class SourceAuditTests(unittest.TestCase):
             _, errors, _, _ = self.check_forms(root)
             self.assertTrue(any("field-mapping catalogue" in error for error in errors))
 
+    def test_editable_derivative_requires_verified_unchanged_original_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = self.form_fixture(root)
+            original = manifest["assets"][0]
+            derived = dict(original, file="example-editable.pdf", derivedFrom="example.pdf",
+                           sourceSha256=original["sha256"], transformation="empty-password-decryption")
+            (root / "forms/example-editable.pdf").write_bytes((root / "forms/example.pdf").read_bytes())
+            manifest["assets"].append(derived)
+            registry = root / "forms/sources.json"
+            registry.write_text(json.dumps(manifest), encoding="utf-8")
+            _, errors, _, _ = self.check_forms(root)
+            self.assertEqual(errors, [])
+            for change in ({"sourceSha256": "0" * 64}, {"pages": 3},
+                           {"derivedFrom": "example-editable.pdf"},
+                           {"transformation": "recreated-from-scratch"}):
+                with self.subTest(change=change):
+                    manifest["assets"][1] = dict(derived, **change)
+                    registry.write_text(json.dumps(manifest), encoding="utf-8")
+                    _, errors, _, _ = self.check_forms(root)
+                    self.assertTrue(any("invalid original-form provenance" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

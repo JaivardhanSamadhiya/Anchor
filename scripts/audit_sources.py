@@ -150,9 +150,17 @@ def audit_official_forms(site: Path, repository: Path, today: date,
             r"\blocalPath\s*:\s*['\"]\./forms/([^'\"]+)['\"][\s\S]*?\bsha256\s*:\s*['\"]([a-f0-9]{64})['\"]",
             source,
         ))
+        mapped_checksums.update(dict(re.findall(
+            r"\beditablePath\s*:\s*['\"]\./forms/([^'\"]+)['\"][\s\S]*?\beditableSha256\s*:\s*['\"]([a-f0-9]{64})['\"]",
+            source,
+        )))
         expected_files.update(mapped_checksums)
         expected_files.update(re.findall(r"\binstructionsPath\s*:\s*['\"]\./forms/([^'\"]+)['\"]", source))
 
+    # Editable derivatives retain an independently verified official original.
+    # Provenance must name that original, not another derivative or a cycle.
+    by_name = {asset.get("file"): asset for asset in assets
+               if isinstance(asset, dict) and isinstance(asset.get("file"), str)}
     filenames: set[str] = set()
     for asset in assets:
         if not isinstance(asset, dict):
@@ -192,6 +200,15 @@ def audit_official_forms(site: Path, repository: Path, today: date,
             checksum = None
         if filename in mapped_checksums and checksum != mapped_checksums[filename]:
             errors.append(f"Official form {filename} checksum differs from its field-mapping catalogue.")
+        if "derivedFrom" in asset:
+            original_name = asset.get("derivedFrom")
+            original = by_name.get(original_name) if isinstance(original_name, str) else None
+            if (not original or original_name == filename or "derivedFrom" in original
+                    or asset.get("transformation") != "empty-password-decryption"
+                    or asset.get("sourceSha256") != original.get("sha256")
+                    or any(asset.get(key) != original.get(key)
+                           for key in ("source", "catalogue", "pages"))):
+                errors.append(f"Editable form {filename} has invalid original-form provenance.")
         try:
             candidate = safe_local_file(site, f"./forms/{filename}")
             if candidate is None or not candidate.is_file():

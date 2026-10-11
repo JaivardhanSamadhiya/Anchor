@@ -1,5 +1,5 @@
 {
-  "reviewedAt": "2026-10-10",
+  "reviewedAt": "2026-10-11",
   "description": "Official public blank forms served locally so private draft answers and file previews are not sent to a remote PDF host. Original agencies retain responsibility for their forms. Verify the county-supplied form before use.",
   "assets": [
     {
@@ -10,7 +10,7 @@
       "catalogue": "https://www.cdss.ca.gov/inforesources/forms-brochures/forms-alphabetic-list/a-d",
       "sha256": "6ea8f69d928c30b6fa213e3e4a2f00e094b9f516e731b98807e1d9834e67b64c",
       "pages": 11,
-      "export": "Verified subset of AcroForm mappings; unsigned partial draft; table notes exported separately."
+      "export": "Verified AcroForm household, student, income, expense and declaration fields. Full editable unsigned draft; signatures and signing dates remain blank."
     },
     {
       "file": "sar7b.pdf",
@@ -20,7 +20,7 @@
       "catalogue": "https://www.cdss.ca.gov/inforesources/forms-brochures/forms-alphabetic-list/q-t",
       "sha256": "d2bfc272399e15a9fbd445c0ea829f3aa6ad16bfbb8ed1265e3fea95cadee342",
       "pages": 14,
-      "export": "Preparation notes only. The official PDF's complex/encrypted fields have not been mapped for export."
+      "export": "Unchanged official original. Reviewed fields are filled using the equivalent unencrypted working copy; signatures and signing dates remain blank."
     },
     {
       "file": "sar7ab.pdf",
@@ -31,6 +31,19 @@
       "sha256": "9671455279c2458584a36121d81995a8448ba616786c5208e0a6fcc145eaa41b",
       "pages": 14,
       "export": "Official instructions; unchanged."
+    },
+    {
+      "file": "sar7b-editable.pdf",
+      "title": "SAR 7B (12/23) - Editable working copy of the official blank",
+      "agency": "California Department of Social Services",
+      "source": "https://www.cdss.ca.gov/Portals/9/Additional-Resources/Forms-and-Brochures/2020/Q-T/SAR7B.pdf?ver=2024-08-27-151418-733",
+      "catalogue": "https://www.cdss.ca.gov/inforesources/forms-brochures/forms-alphabetic-list/q-t",
+      "sha256": "21b62219de687f9d4a48cca39a83d7f6feceb9c9d14f8c666462b9548e140841",
+      "pages": 14,
+      "export": "Equivalent 14-page blank with the same 304 AcroForm fields, widget geometry, text and defaults. Only PDF encryption removed for local browser filling. Official original preserved.",
+      "derivedFrom": "sar7b.pdf",
+      "sourceSha256": "d2bfc272399e15a9fbd445c0ea829f3aa6ad16bfbb8ed1265e3fea95cadee342",
+      "transformation": "empty-password-decryption"
     }
   ]
 }

@@ -16,6 +16,8 @@ export interface FormField {
   /** Fields without a mapping remain preparation notes in the answer summary. */
   pdfText?: string[];
   pdfChecks?: Record<string, string[]>;
+  /** One-based physical page for this mapped field, when a section spans pages. */
+  page?: number;
   maxLength?: number;
   showIf?: { field: string; equals: Answer };
 }
@@ -39,6 +41,9 @@ export interface OfficialForm {
   sha256: string;
   reviewedAt: string;
   fillable: boolean;
+  /** An unencrypted working copy, with the official original preserved above. */
+  editablePath?: string;
+  editableSha256?: string;
   instructionsPath?: string;
 }
 export interface FormAssistance {
@@ -59,12 +64,15 @@ export interface FormDraft {
   requestId?: string;
   formId: OfficialForm['id'] | null;
   answers: Record<string, Answer>;
+  /** Earlier freeform drafts remain available for explicit transfer; never guessed into table cells. */
+  legacyNotes?: Record<string, string>;
   updatedAt: string;
 }
 export interface PdfFieldValue {
   name: string;
   type: 'text' | 'checkbox';
   value: string | boolean;
+  label?: string;
 }
 
 export const OFFICIAL_FORMS: readonly OfficialForm[] = [
@@ -94,7 +102,9 @@ export const OFFICIAL_FORMS: readonly OfficialForm[] = [
     pages: 14,
     sha256: 'd2bfc272399e15a9fbd445c0ea829f3aa6ad16bfbb8ed1265e3fea95cadee342',
     reviewedAt: '2026-10-10',
-    fillable: false,
+    fillable: true,
+    editablePath: './forms/sar7b-editable.pdf',
+    editableSha256: '21b62219de687f9d4a48cca39a83d7f6feceb9c9d14f8c666462b9548e140841',
   },
 ];
 
@@ -140,14 +150,127 @@ const checkbox = (id: string, label: string, pdfName?: string): FormField => ({
   ...(pdfName ? { pdfChecks: { true: [pdfName] } } : {}),
 });
 
-/** Mappings were checked against the actual AcroForm names and page locations. */
+const onPage = (page: number, fields: FormField[]): FormField[] =>
+  fields.map((field) => ({ ...field, page }));
+const when = (id: string, fields: FormField[]): FormField[] =>
+  fields.map((field) => ({ ...field, showIf: { field: id, equals: 'yes' } }));
+const pick = (id: string, label: string, options: [string, string, string[]][]): FormField => ({
+  id,
+  label,
+  kind: 'choice',
+  choices: [...options.map(([value, label]) => ({ value, label })), yesNo[2]],
+  pdfChecks: Object.fromEntries(options.map(([value, , names]) => [value, names])),
+  help: 'Read the matching question and conditions on the official form.',
+});
+const pair = (id: string, label: string, yes: string, no: string): FormField =>
+  pick(id, label, [
+    ['yes', 'Yes', [yes]],
+    ['no', 'No', [no]],
+  ]);
+const compactDate = (id: string, label: string, name: string): FormField => ({
+  ...text(
+    id,
+    label,
+    [name],
+    'Use six digits: MMDDYY. The official form supplies the date separators.',
+  ),
+  maxLength: 6,
+});
+const cfMemberRows = () =>
+  [1, 2, 3].flatMap((row) => {
+    const start = (row - 1) * 6 + 1;
+    const prefix = `Q1 · Person ${row}`;
+    return [
+      pick(`member${row}Change`, `${prefix} · Moved in or out?`, [
+        ['in', 'Moved in', [`question1-1-${start}-1`]],
+        ['out', 'Moved out', [`question1-1-${start}-2`]],
+      ]),
+      compactDate(`member${row}MoveDate`, `${prefix} · Date of move`, `question1-1-${start + 1}`),
+      text(`member${row}Name`, `${prefix} · Full name`, [`question1-1-${start + 2}`]),
+      compactDate(`member${row}BirthDate`, `${prefix} · Date of birth`, `question1-1-${start + 3}`),
+      text(`member${row}Relationship`, `${prefix} · Relationship to you`, [
+        `question1-1-${start + 4}`,
+      ]),
+      question(
+        `member${row}FoodTogether`,
+        `${prefix} · Buy and prepare food together?`,
+        `question1-1-${start + 5}`,
+      ),
+    ];
+  });
+const cfStudentRows = () =>
+  [1, 2].flatMap((row) => {
+    const start = (row - 1) * 4 + 1;
+    const prefix = `Q6 · Student ${row}`;
+    return [
+      text(`student${row}Name`, `${prefix} · Full name`, [`question6-1-${start}`]),
+      text(`student${row}School`, `${prefix} · School or training`, [`question6-1-${start + 1}`]),
+      pick(`student${row}Enrollment`, `${prefix} · Enrollment`, [
+        ['half', 'Half-time or more', [`question6-1-${start + 2}-1`]],
+        ['less', 'Less than half-time', [`question6-1-${start + 2}-2`]],
+        ['units', 'Specify number of units', [`question6-1-${start + 2}-3`]],
+      ]),
+      text(`student${row}Units`, `${prefix} · Number of units (if selected)`, [
+        `question6-1-${start + 2}-3-1`,
+      ]),
+      pair(
+        `student${row}Working`,
+        `${prefix} · Working?`,
+        `question6-1-${start + 3}-2`,
+        `question6-1-${start + 3}-1`,
+      ),
+      text(`student${row}Hours`, `${prefix} · Average work hours per week`, [
+        `question6-1-${start + 3}-2-1`,
+      ]),
+    ];
+  });
+const cfJobRows = () =>
+  [1, 2, 3].flatMap((row) => {
+    const start = (row - 1) * 7 + 1;
+    const prefix = `Q7 · Job ${row}`;
+    return [
+      text(`job${row}Name`, `${prefix} · Person receiving income`, [`question7-1-${start}`]),
+      text(`job${row}Employer`, `${prefix} · Employer`, [`question7-1-${start + 1}`]),
+      checkbox(`job${row}SelfEmployed`, `${prefix} · Self-employed`, `question7-1-${start + 2}-1`),
+      pick(`job${row}Frequency`, `${prefix} · How often paid`, [
+        ['weekly', 'Weekly', [`question7-1-${start + 3}-1`]],
+        ['biweekly', 'Biweekly', [`question7-1-${start + 3}-2`]],
+        ['monthly', 'Monthly', [`question7-1-${start + 3}-3`]],
+        ['twiceMonthly', 'Twice monthly', [`question7-1-${start + 3}-4`]],
+        ['other', 'Other', [`question7-1-${start + 3}-5`]],
+      ]),
+      money(`job${row}Gross`, `${prefix} · Monthly gross income`, [`question7-1-${start + 4}`]),
+      text(`job${row}Hours`, `${prefix} · Hours worked per month`, [`question7-1-${start + 5}`]),
+      question(
+        `job${row}Continues`,
+        `${prefix} · Will income continue?`,
+        `question7-1-${start + 6}`,
+      ),
+    ];
+  });
+const cfOtherIncomeRows = () =>
+  [1, 2, 3].flatMap((row) => {
+    const start = (row - 1) * 4 + 1;
+    return [
+      ['Name', 'Person receiving income'],
+      ['Source', 'Source of income'],
+      ['Pattern', 'One-time or ongoing payment'],
+      ['Amount', 'How much / how often'],
+    ].map(([id, label], index) =>
+      text(`otherIncome${row}${id}`, `Q8 · Income ${row} · ${label}`, [
+        `question8-1-${start + index}`,
+      ]),
+    );
+  });
+
+/** Verified against both the canonical AcroForm tree and physical page widgets. */
 const cf37Sections: FormSection[] = [
   {
     id: 'identity',
     title: 'Your case & contact details',
     page: 8,
-    description: 'Start with the details the county uses to find and contact your household.',
-    fields: [
+    description: 'Use the case details and contact information requested by your county.',
+    fields: onPage(8, [
       text('caseName', 'Case name', ['case_name', 'case_name_header']),
       text('caseNumber', 'Case number', ['case_number', 'case_number_header']),
       text('mailingStreet', 'Mailing street address', ['mailing_street']),
@@ -159,177 +282,173 @@ const cf37Sections: FormSection[] = [
       text('otherPhone', 'Work, alternate or message phone', ['contact_phone_work']),
       text('email', 'Email address', ['contact_email']),
       checkbox('textConsent', 'I choose to allow county text messages', 'contact_phone_text'),
-    ],
+    ]),
   },
   {
     id: 'household',
     title: 'Household & address changes',
     page: 8,
-    description: 'Check the six-month period used in these questions.',
-    fields: [
+    description:
+      'Use the last six months. The form has three household rows; use Additional information for more people.',
+    fields: onPage(8, [
       question('q1', 'Q1 · Has anyone moved into or out of your home?', 'question1'),
-      {
-        ...notes(
-          'householdDetails',
-          'Details to transfer into the Q1 table',
-          'Include the change date and each table column. These notes are exported separately.',
-        ),
-        showIf: { field: 'q1', equals: 'yes' },
-      },
+      ...when('q1', cfMemberRows()),
       question('q2', 'Q2 · Do you want someone to help with your case?', 'question2'),
-      {
-        ...text('representativeName', 'Case helper’s name', ['question2-1-1']),
-        showIf: { field: 'q2', equals: 'yes' },
-      },
-      {
-        ...text('representativePhone', 'Case helper’s phone', ['question2-1-2']),
-        showIf: { field: 'q2', equals: 'yes' },
-      },
+      ...when('q2', [
+        text('representativeName', 'Case helper’s name', ['question2-1-1']),
+        text('representativePhone', 'Case helper’s phone', ['question2-1-2']),
+      ]),
       question('q2b', 'Q2 · Do you want someone to receive and spend benefits?', 'question2b'),
-      {
-        ...notes('spendingRepresentative', 'Representative details to transfer into the form'),
-        showIf: { field: 'q2b', equals: 'yes' },
-      },
+      ...when(
+        'q2b',
+        [
+          ['Name', 'Name'],
+          ['Phone', 'Phone'],
+          ['Street', 'Street address'],
+          ['City', 'City'],
+          ['State', 'State'],
+          ['Zip', 'ZIP code'],
+        ].map(([id, label], index) =>
+          text(`spendingRepresentative${id}`, `Benefits representative · ${label}`, [
+            `question2b-1-${index + 1}`,
+          ]),
+        ),
+      ),
       question('q3', 'Q3 · Has your address changed?', 'question3'),
-      {
-        ...text('newAddress', 'New address', ['question3-1-1']),
-        showIf: { field: 'q3', equals: 'yes' },
-      },
-      {
-        ...text('dateMoved', 'Date moved', ['question3-1-2']),
-        showIf: { field: 'q3', equals: 'yes' },
-      },
-      {
-        ...text('changedMailing', 'Mailing address, if different', ['question3-1-3']),
-        showIf: { field: 'q3', equals: 'yes' },
-      },
-    ],
+      ...when('q3', [
+        text('newAddress', 'New address', ['question3-1-1']),
+        text('dateMoved', 'Date moved', ['question3-1-2']),
+        text('changedMailing', 'Mailing address, if different', ['question3-1-3']),
+      ]),
+    ]),
   },
   {
     id: 'housing',
     title: 'Housing & students',
     page: 8,
-    description: 'Complete Q4 when its condition applies. Q5–6 continue on PDF page 9.',
+    description: 'Q4 applies when housing or costs changed. Q5–6 are on PDF page 9.',
     fields: [
-      money('rent', 'Q4 · Current monthly rent or mortgage', ['question4_rent']),
-      money('propertyCosts', 'Q4 · Separately paid property tax and home insurance per month', [
-        'question4_separate',
+      ...onPage(8, [
+        money('rent', 'Q4 · Current monthly rent or mortgage', ['question4_rent']),
+        money('propertyCosts', 'Q4 · Separately paid property tax and home insurance per month', [
+          'question4_separate',
+        ]),
+        ...['Phone', 'Trash', 'Water', 'Electric / gas', 'Other heating or cooling'].map(
+          (label, index) =>
+            checkbox(
+              `utility${index + 1}`,
+              `Q4a · ${label} cost paid separately`,
+              `question4a_${index + 1}`,
+            ),
+        ),
       ]),
-      ...['Phone', 'Trash', 'Water', 'Electric / gas', 'Other heating or cooling'].map(
-        (label, index) =>
-          checkbox(
-            `utility${index + 1}`,
-            `Q4a · ${label} cost paid separately`,
-            `question4a_${index + 1}`,
-          ),
-      ),
-      question('q5', 'Q5 · Are you homeless?', 'question5'),
-      {
-        ...question('q5a', 'Q5 · Do you pay shelter costs?', 'question5-1'),
-        showIf: { field: 'q5', equals: 'yes' },
-      },
-      question('q6', 'Q6 · Is an applicant attending college or vocational school?', 'question6'),
-      {
-        ...notes('studentDetails', 'School, enrollment and work details to transfer into Q6'),
-        showIf: { field: 'q6', equals: 'yes' },
-      },
+      ...onPage(9, [
+        question('q5', 'Q5 · Are you homeless?', 'question5'),
+        ...when('q5', [question('q5a', 'Q5 · Do you pay shelter costs?', 'question5-1')]),
+        question('q6', 'Q6 · Is an applicant attending college or vocational school?', 'question6'),
+        ...when('q6', cfStudentRows()),
+      ]),
     ],
   },
   {
     id: 'income',
     title: 'Income & expected changes',
     page: 9,
-    description: 'Keep income sources and supporting documents together.',
-    fields: [
+    description: 'List each job and each income source. Attach proof as the form requests.',
+    fields: onPage(9, [
       question('q7', 'Q7 · Does your household get income from a job?', 'question7'),
-      {
-        ...notes(
-          'jobDetails',
-          'Job details to transfer into Q7',
-          'Use the person, employer, pay frequency, gross income, hours and continuation columns.',
-        ),
-        showIf: { field: 'q7', equals: 'yes' },
-      },
+      ...when('q7', cfJobRows()),
       question('q7a', 'Q7a · Do you expect a job or income change?', 'question7a'),
-      {
-        ...text('jobChange', 'Q7a · Explain the expected change', ['question7a-1-1']),
-        showIf: { field: 'q7a', equals: 'yes' },
-      },
+      ...when('q7a', [
+        text('jobChange', 'Q7a · Expected change, line 1', ['question7a-1-1']),
+        text('jobChangeLine2', 'Q7a · Expected change, line 2', ['question7a-1-2']),
+      ]),
       question('q8', 'Q8 · Does your household get income outside a job?', 'question8'),
-      {
-        ...notes('otherIncome', 'Other income details to transfer into Q8'),
-        showIf: { field: 'q8', equals: 'yes' },
-      },
+      ...when('q8', cfOtherIncomeRows()),
       question('q8a', 'Q8a · Do you expect a change to this income?', 'question8a'),
-      {
-        ...text('otherIncomeChange', 'Q8a · Explain the expected change', ['question8a-1-1']),
-        showIf: { field: 'q8a', equals: 'yes' },
-      },
-    ],
+      ...when('q8a', [
+        text('otherIncomeChange', 'Q8a · Explain the expected change', ['question8a-1-1']),
+      ]),
+    ]),
   },
   {
     id: 'expenses',
     title: 'Expenses & health coverage',
     page: 10,
-    description: 'Read the conditions beside each expense question.',
-    fields: [
+    description: 'Read the conditions beside each expense question on the form.',
+    fields: onPage(10, [
       question(
         'q9',
-        'Q9 · New or increased medical costs for a qualifying household member?',
+        'Q9 · New or increased medical costs for a member who is 60 or older, or disabled?',
         'question9',
       ),
-      {
-        ...notes('medicalDetails', 'Medical cost details to transfer into Q9'),
-        showIf: { field: 'q9', equals: 'yes' },
-      },
+      ...when('q9', [
+        text('medicalName', 'Q9 · Who had the cost?', ['question9-1-1']),
+        text('medicalType', 'Q9 · Type of cost', ['question9-1-2']),
+        money('medicalAmount', 'Q9 · Amount paid', ['question9-1-3']),
+        text('medicalFrequency', 'Q9 · How often?', ['question9-1-4']),
+      ]),
       question('q10', 'Q10 · Does a household member pay child support?', 'question10'),
-      {
-        ...notes('childSupport', 'Child support details to transfer into Q10'),
-        showIf: { field: 'q10', equals: 'yes' },
-      },
+      ...when('q10', [
+        text('childSupportChildren', 'Q10 · Children’s names', ['question10-1-1']),
+        money('childSupportAmount', 'Q10 · Current amount required', ['question10-1-2']),
+        text('childSupportPayer', 'Q10 · Who paid support?', ['question10-1-3']),
+      ]),
       question('q11', 'Q11 · Does your household pay dependent or child care costs?', 'question11'),
-      {
-        ...notes('careDetails', 'Care cost details to transfer into Q11'),
-        showIf: { field: 'q11', equals: 'yes' },
-      },
+      ...when('q11', [
+        money('careAmount', 'Q11 · Out-of-pocket amount', ['question11-1-1']),
+        text('carePayer', 'Q11 · Who paid?', ['question11-1-2']),
+        text('careDependents', 'Q11 · Dependents / children', ['question11-1-3']),
+      ]),
       question('q12', 'Q12 · Are you interested in applying for Medi-Cal?', 'question12'),
-    ],
+    ]),
   },
   {
     id: 'declarations',
     title: 'Read the remaining questions',
     page: 10,
     description:
-      'Use the exact wording of Q13–18 in the official PDF. Ask the county if a question is unclear.',
-    fields: [
-      ...[
+      'Use the exact wording of Q13–18 in the PDF. Ask your county if a question is unclear.',
+    fields: onPage(
+      10,
+      [
         ['13', 'Duplicate benefits'],
         ['14', 'Trafficking of benefits'],
         ['15', 'Trading benefits for drugs'],
         ['16', 'Trading benefits for firearms or explosives'],
         ['17', 'Fleeing felon'],
         ['18', 'Probation / parole violation'],
-      ].map(([number, label]) =>
+      ].flatMap(([number, label]) => [
         question(`q${number}`, `Q${number} · ${label}`, `question${number}`),
-      ),
-      notes('declarationDetails', 'Details or questions to review directly with the county'),
-    ],
+        ...when(`q${number}`, [
+          text(`q${number}Who`, `Q${number} · If yes, who?`, [`question${number}-1-1`]),
+        ]),
+      ]),
+    ),
   },
   {
     id: 'review',
     title: 'Review, sign & return',
     page: 11,
     description:
-      'The exported PDF is an unsigned draft. Finish the official form before returning it.',
+      'All 11 pages remain in your editable PDF. Review every applicable question, gather proof, and sign and date the certification yourself.',
     fields: [
-      notes('proofPlan', 'Requested proof and where you will get it'),
-      notes('interviewPlan', 'Your interview appointment or questions for the county'),
-      notes('returnPlan', 'Where and how you will return the official form'),
+      {
+        ...notes(
+          'additionalNotes',
+          'Additional information / extra table rows',
+          'Written on the official Notes page (PDF page 7). Identify the question number for each extra answer.',
+        ),
+        pdfText: ['notes'],
+        page: 7,
+      },
+      {
+        ...text('signatureContact', 'Contact email or phone beside the signature', [
+          'signed_contact',
+        ]),
+        page: 11,
+      },
       checkbox('originalReviewed', 'I compared my draft with every page of the official form'),
-      checkbox(
-        'tablesTransferred',
-        'I transferred the separate table notes into the official form',
-      ),
       checkbox(
         'signatureNeeded',
         'I understand I must read the certification, sign and date the official form',
@@ -338,60 +457,383 @@ const cf37Sections: FormSection[] = [
   },
 ];
 
+const sar = (number: string | number) => `SAR7  ${number}`;
+const sarText = (id: string, label: string, number: string | number) =>
+  text(id, label, [sar(number)]);
+const sarCheck = (id: string, label: string, number: string | number) =>
+  checkbox(id, label, sar(number));
+const sarPair = (id: string, label: string, yes: string | number, no: string | number) =>
+  pair(id, label, sar(yes), sar(no));
+const sarProof = (id: string, label: string, attached: number, help: number) =>
+  pick(id, label, [
+    ['attached', 'I have attached proof', [sar(attached)]],
+    ['help', 'I do not have proof / need help getting proof', [sar(help)]],
+  ]);
+const sarMembers = () =>
+  [1, 2].flatMap((row) => {
+    const start = row === 1 ? 122 : 136;
+    const prefix = `Person ${row}`;
+    return [
+      sarText(`member${row}Name`, `${prefix} · Full name`, start),
+      sarText(`member${row}BirthDate`, `${prefix} · Date of birth (MM/DD/YYYY)`, start + 1),
+      sarText(
+        `member${row}Relationship`,
+        `${prefix} · Relationship to head of household`,
+        start + 2,
+      ),
+      ...[
+        ['Moved in', start + 3],
+        ['Birth', start + 5],
+        ['Moved out', start + 4],
+        ['Death', start + 6],
+        ['Temporary absence', row === 1 ? 298 : 516],
+        ['Other change', start + 7],
+      ].map(([label, number], index) =>
+        sarCheck(`member${row}Change${index + 1}`, `${prefix} · ${label}`, number),
+      ),
+      sarText(`member${row}OtherChange`, `${prefix} · Other change type`, start + 8),
+      sarText(`member${row}Explain`, `${prefix} · Explain, line 1`, start + 9),
+      sarText(`member${row}ExplainLine2`, `${prefix} · Explain, line 2`, start + 10),
+      sarText(
+        `member${row}ChangeDate`,
+        `${prefix} · Date of change (MM/DD/YYYY)`,
+        row === 1 ? 135 : 160,
+      ),
+      sarPair(
+        `member${row}FoodTogether`,
+        `${prefix} · Buy and make food together?`,
+        start + 11,
+        start + 12,
+      ),
+    ];
+  });
+const sarIncomeRows = () =>
+  [1, 2, 3, 4].flatMap((row) => {
+    const last = 570 + (row - 1) * 21;
+    const prefix = `Income ${row}`;
+    return onPage(row === 1 ? 5 : row === 4 ? 7 : 6, [
+      sarText(`income${row}Name`, `${prefix} · Household member name`, 2010 + row),
+      ...[
+        ['Received in report month', 0],
+        ['Started', 1],
+        ['Stopped', 2],
+        ['Changed', 3],
+      ].map(([label, offset], index) =>
+        sarCheck(`income${row}Event${index + 1}`, `${prefix} · ${label}`, last - Number(offset)),
+      ),
+      sarText(`income${row}Explain`, `${prefix} · Explain change, line 1`, last - 4),
+      sarText(`income${row}ExplainLine2`, `${prefix} · Explain change, line 2`, last - 5),
+      sarText(`income${row}ChangeDate`, `${prefix} · Date of change (MM/DD/YYYY)`, last - 6),
+      sarPair(`income${row}FromJob`, `${prefix} · From a job?`, last - 7, last - 10),
+      sarText(`income${row}Employer`, `${prefix} · Employer, line 1`, last - 8),
+      sarText(`income${row}EmployerLine2`, `${prefix} · Employer, line 2`, last - 9),
+      sarText(`income${row}Type`, `${prefix} · Type of income outside a job`, last - 11),
+      pick(`income${row}Frequency`, `${prefix} · How often paid`, [
+        ['weekly', 'Weekly', [sar(last - 12)]],
+        ['biweekly', 'Every 2 weeks', [sar(last - 13)]],
+        ['monthly', 'Monthly', [sar(last - 14)]],
+        ['twiceMonthly', 'Twice a month', [sar(last - 15)]],
+        ['other', 'Other', [sar(last - 16)]],
+      ]),
+      money(`income${row}Gross`, `${prefix} · Total gross income in report month`, [
+        sar(last - 17),
+      ]),
+      sarText(`income${row}Dates`, `${prefix} · Dates received, line 1`, last - 18),
+      sarText(`income${row}DatesLine2`, `${prefix} · Dates received, line 2`, last - 19),
+      sarText(`income${row}Hours`, `${prefix} · Hours worked per month`, last - 20),
+    ]);
+  });
+const resourceChecks = [
+  [299, 300, 301, 302, 303, 304, 305, 306],
+  [307, 308, 309, 3010, 3011, 3012, 3013, 3014],
+  [3015, 3016, 3017, 3018, 3019, 3020, 3021, 3022],
+];
+const sarResourceRows = () =>
+  [1, 2, 3].flatMap((row) => {
+    const start = 13 + (row - 1) * 4;
+    return onPage(row === 1 ? 8 : 9, [
+      text(`resource${row}Name`, `Resource ${row} · Household member name`, [
+        `Text Field ${start}`,
+      ]),
+      text(`resource${row}Type`, `Resource ${row} · Type of resource`, [`Text Field ${start + 1}`]),
+      ...[
+        'Bought',
+        'Sold',
+        'Gave away',
+        'Got as a gift',
+        'Traded',
+        'Won',
+        'Opened / closed',
+        'Other',
+      ].map((label, index) =>
+        sarCheck(
+          `resource${row}Event${index + 1}`,
+          `Resource ${row} · ${label}`,
+          resourceChecks[row - 1][index],
+        ),
+      ),
+      text(`resource${row}Other`, `Resource ${row} · Explain other`, [`Text Field ${start + 1}a`]),
+      money(`resource${row}Value`, `Resource ${row} · Value`, [`Text Field ${start + 2}`]),
+      text(`resource${row}Dates`, `Resource ${row} · Dates received (MM/DD/YYYY)`, [
+        `Text Field ${start + 3}`,
+      ]),
+    ]);
+  });
 const sar7Sections: FormSection[] = [
   {
     id: 'report',
-    title: 'Your report period & contact details',
+    title: 'Report period & contact details',
     page: 1,
     description:
-      'Use the report and submit months on your county’s version. Contact details are on page 3.',
+      'Use the report and submit months on your county notice. Contact details are on page 3; optional disability assistance is on page 2.',
     fields: [
-      text('reportMonth', 'Report month'),
-      text('submitMonth', 'Submit month'),
-      text('caseName', 'Case name'),
-      text('caseNumber', 'Case number'),
-      notes('contactDetails', 'Contact details to transfer to page 3'),
+      ...onPage(1, [
+        sarText('reportMonth', 'Report month', 10),
+        sarText('submitMonth', 'Submit month', 35),
+        sarText('householdName', 'Household name', 11),
+        sarText('noticeStreet', 'Street address on report cover', 12),
+        sarText('noticeCity', 'City / town on report cover', 13),
+        sarText('noticeZip', 'ZIP code on report cover', 16),
+        sarText('noticeDate', 'Date on report cover', 17),
+        sarText('caseName', 'Case name', 18),
+        sarText('caseNumber', 'Case number', 34),
+      ]),
+      ...onPage(2, [
+        sarPair('disabled', 'Optional · Is anyone in your household disabled?', 22, 23),
+        ...when('disabled', [
+          sarText('disabledName', 'Person with a disability · Full name', 24),
+          sarText('disabledExplain', 'Person with a disability · Explain', 25),
+        ]),
+        sarPair('disabilityHelp', 'Optional · Does anyone need help due to a disability?', 26, 27),
+        ...when('disabilityHelp', [
+          sarText('disabilityHelpName', 'Person needing assistance · Full name', 28),
+          sarText('disabilityHelpExplain', 'Assistance needed · Explain', 29),
+        ]),
+      ]),
+      ...onPage(3, [
+        sarText('homeStreet', 'Home street address', 37),
+        sarText('homeApartment', 'Home apartment number', 38),
+        sarText('homeCityStateZip', 'Home city, state and ZIP code', 40),
+        sarCheck('homeless', 'I am homeless', 39),
+        sarText('mailingStreet', 'Mailing street address / PO box, if different', 41),
+        sarText('mailingApartment', 'Mailing apartment number', 48),
+        sarText('mailingCityStateZip', 'Mailing city, state and ZIP code', 42),
+        sarCheck('keepMailing', 'Keep my current mailing address', 43),
+        pick('homelessMailing', 'If homeless · Where should mail go?', [
+          ['address', 'I entered my mailing address above', [sar(44)]],
+          ['county', 'Use the county mailing address (contact county to set up)', [sar(45)]],
+          ['general', 'General Delivery (contact post office to set up)', [sar(46)]],
+        ]),
+        sarText('generalDeliveryZip', 'General Delivery post office ZIP code', 47),
+        sarText('homePhone', 'Home phone', 49),
+        sarText('cellPhone', 'Cell phone', 50),
+        sarText('otherPhone', 'Other phone', 51),
+        sarPair('textConsent', 'Receive county text messages about benefits?', 52, 53),
+        sarCheck('noEmail', 'I do not have an email address', 520),
+        sarText('email', 'Email address', 55),
+        sarPair('emailConsent', 'Receive county email notices about benefits?', 56, 57),
+      ]),
     ],
   },
   {
     id: 'household',
     title: 'Household changes',
     page: 4,
-    description: 'Record the people and changes that apply to the form’s period.',
-    fields: [
-      question('householdChanged', 'Has your household changed?'),
-      notes('householdDetails', 'Household table details'),
-    ],
+    description:
+      'Report changes since you last reported. The form contains two household rows; attach a separate sheet for more people.',
+    fields: onPage(4, [
+      sarPair(
+        'householdChanged',
+        'Has anyone moved in or out, or did you move in with someone?',
+        '124a',
+        '124a 2',
+      ),
+      ...when('householdChanged', sarMembers()),
+    ]),
   },
   {
     id: 'income',
     title: 'Income & proof',
     page: 5,
     description:
-      'The income section spans pages 5–7. Use gross amounts and the report month requested.',
+      'Use gross amounts for your report month. Four income rows span pages 5–7; attach more pages if needed.',
     fields: [
-      notes('incomeDetails', 'People, income sources, amounts, pay dates and expected changes'),
-      notes('incomeProof', 'Proof available, or help you need getting it'),
+      ...onPage(5, [
+        sarPair(
+          'incomeReceived',
+          'Any earned / unearned income in the report month or expected change in the next six months?',
+          '569a',
+          '569a 2',
+        ),
+        sarPair(
+          'unearnedIncreased',
+          'CalFresh · Did total household unearned income increase in the report month?',
+          '569a 3',
+          '569a 4',
+        ),
+      ]),
+      ...sarIncomeRows(),
+      ...onPage(7, [
+        sarProof('incomeProof', 'Proof for the income changes', 290, 517),
+        sarPair('strike', 'Did anyone stop working because of a strike?', 292, 296),
+        ...when('strike', [
+          sarText('strikeName', 'Person on strike · Full name', 295),
+          money('strikeGross', 'Gross income before strike', [sar(294)]),
+        ]),
+      ]),
     ],
   },
   {
     id: 'resources',
-    title: 'Resources & expenses',
+    title: 'Resources & proof',
     page: 8,
     description:
-      'Read the applicability instructions. Ask the county if you are unsure which sections apply.',
+      'Read the conditions on page 8 before completing this section. Ask your county if resource reporting applies to your household.',
     fields: [
-      notes('resourceQuestions', 'Resources to report or questions for your county'),
-      notes('expenseDetails', 'Housing, utilities, care, support or medical expense details'),
+      ...onPage(8, [
+        sarPair(
+          'resourcesChanged',
+          'If this section applies · Any changed or new resources?',
+          293,
+          297,
+        ),
+      ]),
+      ...when('resourcesChanged', sarResourceRows()),
+      ...onPage(9, [sarProof('resourceProof', 'Proof for resource changes', 3023, 3024)]),
+    ],
+  },
+  {
+    id: 'expenses',
+    title: 'Expenses',
+    page: 10,
+    description:
+      'If your address changed, report new housing and utility costs. Read the medical-cost conditions on page 11.',
+    fields: [
+      ...onPage(10, [
+        sarPair('expensesChanged', 'Have your expenses changed?', 3025, 3026),
+        sarPair('addressChanged', 'Has your address changed?', 3027, 3028),
+        money('rent', 'Monthly rent or mortgage', ['Text Field 25']),
+        sarPair(
+          'temporaryHousing',
+          'Without a permanent address · Do you pay temporary housing costs?',
+          3029,
+          3030,
+        ),
+        ...[
+          ['Phone (including cell)', 3031],
+          ['Electric / gas', 3032],
+          ['Property tax', 3033],
+          ['Water', 3034],
+          ['Home / renter’s insurance', 3035],
+          ['Trash', 3036],
+          ['HOA fees', 3037],
+          ['Mobile home lot rent', 3038],
+          ['Other cost', 3039],
+        ].map(([label, number], index) =>
+          sarCheck(`utility${index + 1}`, `Cost paid · ${label}`, number),
+        ),
+        money('propertyTax', 'Property tax amount', ['Text Field 26']),
+        money('homeInsurance', 'Home / renter’s insurance amount', ['Text Field 27']),
+        money('hoaFees', 'HOA fee amount', ['Text Field 28']),
+        text('otherHousingCost', 'Other housing cost · Specify and amount', ['Text Field 29']),
+        text('carePayer', 'Who paid dependent / child care?', ['Text Field 30']),
+        money('careAmount', 'Care paid in report month', ['Text Field 31']),
+        text('careDependents', 'Names of dependents / children', ['Text Field 32']),
+        text('childSupportPayer', 'Who paid child support to someone outside household?', [
+          'Text Field 33',
+        ]),
+        money('childSupportAmount', 'Child support paid in report month', ['Text Field 34']),
+        sarProof('childSupportProof', 'Proof for child support', 3040, 3041),
+      ]),
+      ...onPage(11, [
+        text('medicalName', 'Who paid medical costs?', ['Text Field 35']),
+        money('medicalAmount', 'Medical costs paid in report month', ['Text Field 36']),
+        sarProof('medicalProof', 'Proof for medical costs', 3042, 3043),
+      ]),
     ],
   },
   {
     id: 'remaining',
     title: 'Remaining questions',
     page: 11,
-    description: 'Review pages 11–13 with the included instructions and current county guidance.',
+    description:
+      'Review pages 11–13. Work-requirement questions are optional; confirm current requirements with your county. Cash-aid questions apply only if you get cash aid.',
     fields: [
-      notes('remainingQuestions', 'Answers or questions to transfer into the remaining sections'),
+      ...onPage(11, [
+        sarPair(
+          'lottery',
+          'Did anyone win money from gambling / lottery in the last six months?',
+          3044,
+          3045,
+        ),
+        ...when('lottery', [
+          text('lotteryName', 'Winner’s full name', ['Text Field 37']),
+          text('lotteryDate', 'Date of winning (MM/DD/YYYY)', ['Text Field 38']),
+          money('lotteryAmount', 'Amount won', ['Text Field 39']),
+        ]),
+        sarProof('lotteryProof', 'Proof for changes above', 3046, 3047),
+      ]),
+      ...onPage(
+        12,
+        [
+          ['Health issue prevents work', 481, 521],
+          ['Caring for child under 6', 482, 522],
+          ['Caring for a person with disability', 483, 523],
+          ['Pregnant', 484, 524],
+          ['School / training at least half-time', 485, 525],
+          ['Unemployment benefits received / applied', 486, 526],
+          ['Drug / alcohol treatment or problem', 487, 527],
+          ['ORR training at least half-time', 488, 528],
+          ['Child under 18 lives in household', 489, 529],
+        ]
+          .flatMap(([label, check, name], index) => [
+            sarCheck(`workExemption${index + 1}`, `Optional work question · ${label}`, check),
+            sarText(
+              `workExemption${index + 1}Name`,
+              `Optional work question · ${label} · Person’s name`,
+              name,
+            ),
+          ])
+          .concat([
+            sarCheck('workHomeless', 'Optional work question · Experiencing homelessness', '489a'),
+            sarCheck('workVeteran', 'Optional work question · Veteran', '489b'),
+            sarCheck(
+              'workFoster',
+              'Optional work question · Age 24 or younger, in foster care at 18',
+              '489c',
+            ),
+            sarProof('workProof', 'Proof for optional work questions', 490, 518),
+          ]),
+      ),
+      ...onPage(13, [
+        sarPair(
+          'cashWarrant',
+          'Cash aid only · Outstanding felony warrant / parole or probation violation?',
+          492,
+          519,
+        ),
+        ...when('cashWarrant', [
+          sarText('cashWarrantName', 'Cash aid only · Person’s name', 494),
+          sarCheck('cashOutstandingWarrant', 'Cash aid only · Outstanding warrant', 495),
+          sarCheck('cashParoleViolation', 'Cash aid only · Parole / probation violation', 496),
+          sarText('cashWarrantDate', 'Cash aid only · Date, if known', 497),
+          sarText('cashWarrantState', 'Cash aid only · State', 498),
+        ]),
+        ...[
+          ['No changes', 499],
+          ['Family changes', 500],
+          ['Immigration changes', 501],
+          ['Custody changes', 502],
+          ['IHSS changes', 503],
+          ['School / college attendance changes', 504],
+          ['Other changes', 505],
+        ].map(([label, number], index) =>
+          sarCheck(`cashLifeEvent${index + 1}`, `Cash aid only · ${label}`, number),
+        ),
+        sarText('cashOtherChange', 'Cash aid only · Explain other change', 506),
+        sarText('cashChangesExplain', 'Cash aid only · Explain changes', 509),
+        sarProof('cashProof', 'Cash aid only · Proof for changes', 507, 508),
+      ]),
     ],
   },
   {
@@ -399,15 +841,46 @@ const sar7Sections: FormSection[] = [
     title: 'Review, sign & return',
     page: 14,
     description:
-      'Your preparation notes are not a SAR 7. Complete and sign the official county form.',
+      'Download all 14 pages as an editable unsigned PDF. Read the certification, sign and date yourself, attach proof and any extra sheets, then return through an accepted county channel. Page 2 also contains optional requests to stop benefits; review it directly if you want to make that request.',
     fields: [
-      notes('returnPlan', 'Submission channel and required proof'),
-      checkbox('originalReviewed', 'I checked all applicable questions on the actual form'),
+      checkbox('originalReviewed', 'I checked every applicable question on the actual form'),
       checkbox('signatureNeeded', 'I understand I must sign and date the actual form'),
     ],
   },
 ];
 
+/** Public, reviewed field definitions; never includes a resident's draft. */
+export function officialFormFields(id: OfficialForm['id']): FormField[] {
+  return (id === 'cf37' ? cf37Sections : sar7Sections).flatMap((section) => section.fields);
+}
+
+const legacyLabels: Record<string, string> = {
+  householdDetails: 'Household table details',
+  spendingRepresentative: 'Benefits representative details',
+  studentDetails: 'Student table details',
+  jobDetails: 'Job table details',
+  otherIncome: 'Other income table details',
+  medicalDetails: 'Medical cost details',
+  childSupport: 'Child support details',
+  careDetails: 'Care cost details',
+  declarationDetails: 'Declaration questions',
+  contactDetails: 'Contact details',
+  incomeDetails: 'Income details',
+  incomeProof: 'Income proof notes',
+  resourceQuestions: 'Resource questions',
+  expenseDetails: 'Expense details',
+  remainingQuestions: 'Remaining questions',
+  proofPlan: 'Proof plan',
+  interviewPlan: 'Interview plan',
+  returnPlan: 'Return plan',
+};
+
+export function legacyFormNotes(draft: FormDraft): { label: string; value: string }[] {
+  return Object.entries(draft.legacyNotes ?? {})
+    .filter(([id]) => Object.hasOwn(legacyLabels, id))
+    .map(([id, value]) => ({ label: legacyLabels[id], value: plain(value) }))
+    .filter((item) => item.value);
+}
 function plain(value: unknown, limit = 2000): string {
   return typeof value === 'string'
     ? value
@@ -595,7 +1068,22 @@ export function updateFormDraft(
   )
     return createFormDraft(assistance, now);
   const answers: Record<string, Answer> = {};
-  for (const field of assistance.sections.flatMap((section) => section.fields)) {
+  const legacyNotes: Record<string, string> = {};
+  const currentFields = assistance.sections.flatMap((section) => section.fields);
+  for (const id of Object.keys(legacyLabels)) {
+    const retained = plain(draft.legacyNotes?.[id]).trim();
+    if (retained) legacyNotes[id] = retained;
+    const field = currentFields.find((item) => item.id === id);
+    const previous = Object.hasOwn(updates, id) ? updates[id] : draft.answers[id];
+    if (
+      !field ||
+      (field.kind === 'choice' && !field.choices?.some((choice) => choice.value === previous))
+    ) {
+      const note = plain(previous).trim();
+      if (note) legacyNotes[id] = note;
+    }
+  }
+  for (const field of currentFields) {
     const value = Object.hasOwn(updates, field.id) ? updates[field.id] : draft.answers[field.id];
     if (field.kind === 'checkbox') {
       if (typeof value === 'boolean') answers[field.id] = value;
@@ -609,7 +1097,11 @@ export function updateFormDraft(
       } else if (cleaned) answers[field.id] = cleaned;
     }
   }
-  return { ...createFormDraft(assistance, now), answers };
+  return {
+    ...createFormDraft(assistance, now),
+    answers,
+    ...(Object.keys(legacyNotes).length ? { legacyNotes } : {}),
+  };
 }
 
 export function visibleFormFields(section: FormSection, draft: FormDraft): FormField[] {
@@ -656,12 +1148,24 @@ export function toPdfFieldValues(assistance: FormAssistance, draft: FormDraft): 
     for (const field of visibleFormFields(section, clean)) {
       const value = clean.answers[field.id];
       if (field.pdfText && typeof value === 'string' && value !== 'ask') {
-        values.push(...field.pdfText.map((name) => ({ name, type: 'text' as const, value })));
+        values.push(
+          ...field.pdfText.map((name) => ({
+            name,
+            type: 'text' as const,
+            value,
+            label: field.label,
+          })),
+        );
       }
       if (field.pdfChecks && value !== undefined) {
         const selected = field.pdfChecks[String(value)] ?? [];
         for (const name of new Set(Object.values(field.pdfChecks).flat())) {
-          values.push({ name, type: 'checkbox', value: selected.includes(name) });
+          values.push({
+            name,
+            type: 'checkbox',
+            value: selected.includes(name),
+            label: field.label,
+          });
         }
       }
     }
@@ -689,6 +1193,14 @@ export function formDraftSummary(assistance: FormAssistance, draft: FormDraft): 
         );
     }
     lines.push('');
+  }
+  const legacy = legacyFormNotes(clean);
+  if (legacy.length) {
+    lines.push(
+      'Earlier saved preparation notes',
+      'These notes have not been placed in table cells. Copy the details into the matching fields or attach an extra sheet with the official form.',
+    );
+    lines.push(...legacy.map((item) => `${item.label}: ${item.value}`), '');
   }
   lines.push('Next steps');
   lines.push(
