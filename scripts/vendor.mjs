@@ -1,6 +1,6 @@
 // Build-time only. Runtime document processing uses these same-origin assets.
 import { build } from 'esbuild';
-import { copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -9,6 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(root, 'web', 'vendor');
 const modules = join(root, 'node_modules');
 const languageURL = 'https://tessdata.projectnaptha.com/4.0.0/eng.traineddata.gz';
+const spanishLanguageURL = 'https://tessdata.projectnaptha.com/4.0.0/spa.traineddata.gz';
 await mkdir(target, { recursive: true });
 
 await build({
@@ -41,14 +42,20 @@ await copyFile(
   join(modules, 'pdfjs-dist', 'build', 'pdf.worker.min.mjs'),
   join(target, 'pdf.worker.mjs'),
 );
-await copyFile(
-  join(modules, 'tesseract.js', 'web', 'worker.min.js'),
-  join(target, 'tesseract-worker.min.js'),
-);
-await copyFile(
-  join(modules, 'tesseract.js', 'web', 'worker.min.js.LICENSE.txt'),
-  join(target, 'tesseract-worker.min.js.LICENSE.txt'),
-);
+for (const [source, destination] of [
+  ['worker.min.js', 'tesseract-worker.min.js'],
+  ['worker.min.js.LICENSE.txt', 'tesseract-worker.min.js.LICENSE.txt'],
+]) {
+  const packaged = join(modules, 'tesseract.js', 'dist', source);
+  try {
+    await access(packaged);
+    await copyFile(packaged, join(target, destination));
+  } catch {
+    await access(
+      join(target, destination),
+    ); /* preserve pinned, bundled worker in portable installations */
+  }
+}
 
 await mkdir(join(target, 'core'), { recursive: true });
 for (const name of await readdir(join(modules, 'tesseract.js-core'))) {
@@ -105,6 +112,27 @@ const licenseFiles = [
   ['tesseract.js', 'LICENSE.md'],
   ['tesseract.js-core', 'LICENSE'],
 ];
+// Spanish is bundled at release time too: scans never contact an OCR CDN.
+let spanishData;
+const spanishFile = join(target, 'lang', 'spa.traineddata.gz');
+try {
+  spanishData = await readFile(spanishFile);
+} catch {
+  /* first bilingual build */
+}
+if (!spanishData) {
+  const response = await fetch(spanishLanguageURL, { signal: AbortSignal.timeout(60_000) });
+  if (!response.ok) throw new Error(`Spanish OCR download failed (${response.status}).`);
+  spanishData = Buffer.from(await response.arrayBuffer());
+  if (
+    spanishData.length < 100_000 ||
+    spanishData.length > 30_000_000 ||
+    spanishData[0] !== 0x1f ||
+    spanishData[1] !== 0x8b
+  )
+    throw new Error('Invalid compressed Spanish OCR data.');
+  await writeFile(spanishFile, spanishData);
+}
 await mkdir(join(target, 'licenses'), { recursive: true });
 for (const [name, file] of licenseFiles) {
   const source = join(modules, name, file);
@@ -123,6 +151,10 @@ for (const [name, file] of licenseFiles) {
 await writeFile(
   join(target, 'licenses', 'eng-traineddata.txt'),
   `English language data distributed by the Tesseract.js project\nSource: ${languageURL}\nRepository: https://github.com/naptha/tessdata\nLicense: Apache-2.0 (https://github.com/naptha/tessdata/blob/gh-pages/LICENSE)\nSHA-256: ${createHash('sha256').update(languageData).digest('hex')}\n`,
+);
+await writeFile(
+  join(target, 'licenses', 'spa-traineddata.txt'),
+  `Spanish language data distributed by the Tesseract.js project\nSource: ${spanishLanguageURL}\nLicense: Apache-2.0 (see eng-Apache-2.0-LICENSE.txt)\nSHA-256: ${createHash('sha256').update(spanishData).digest('hex')}\n`,
 );
 // Include the complete Apache 2.0 license, not only a link to the traineddata license.
 await copyFile(
@@ -150,6 +182,9 @@ const manifest = {
   generatedAt: new Date().toISOString(),
   packages: { 'pdfjs-dist': '4.10.38', 'tesseract.js': '6.0.1', 'tesseract.js-core': '6.0.0' },
   ocrLanguage: 'eng',
+  ocrLanguages: ['eng', 'spa'],
+  spanishLanguageSource: spanishLanguageURL,
+  spanishLanguageSha256: createHash('sha256').update(spanishData).digest('hex'),
   languageSource: languageURL,
   languageSha256: createHash('sha256').update(languageData).digest('hex'),
   assets: await listAssets(target),

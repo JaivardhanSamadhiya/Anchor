@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extractFile, buildHandoff, buildBackup, escapeHTML, MAX_FILE_BYTES, loadState } from '../web/platform.js';
+import { compactSourceLayout } from '../web/platform.js';
+
+test('source geometry has a whole-file budget without clipping quote text', () => {
+  const text = 'Original wording is preserved in each retained box.';
+  const pages = Array.from({length:10},(_,index) => ({page:index+1,width:600,height:800,words:Array.from({length:2000},() => ({text,x:.123456789,y:.23456789,w:.333333333,h:.0123456}))}));
+  const result = compactSourceLayout(pages);
+  assert.equal(result.layoutTruncated,true);
+  const boxes = result.layout.flatMap(page => page.words);
+  assert.ok(boxes.length <= 1200);
+  assert.ok(Buffer.byteLength(JSON.stringify(boxes)) < 125000);
+  assert.ok(boxes.every(box => box.text === text && box.x === .1235));
+  assert.equal(compactSourceLayout([{...pages[0],words:[{text:'z'.repeat(401),x:.1,y:.2,w:.1,h:.1}]}]).layout[0].words.length,0);
+});
 
 test('text import preserves notice content while excluding invisible controls and reports completion', async () => {
   const file = new File(['CalFresh\r\nSubmit by October 22, 2026.\u0000'], 'notice.txt', { type: 'text/plain' });
@@ -305,7 +318,7 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
     await page.waitForFunction(() => document.querySelector('#offline-status')?.textContent.includes('ready for offline use'), undefined, { timeout: 60_000 });
     const cached = await page.evaluate(async () => {
       const manifest = await (await fetch(new URL('vendor/manifest.json', location.href))).json();
-      const readers = await caches.open('anchor-readers-v1');
+      const readers = await caches.open(`anchor-readers-v2:${new URL('./', location.href).pathname}`);
       const missing = [];
       for (const asset of manifest.assets) if (!(await readers.match(new URL(asset.path, location.href).href))) missing.push(asset.path);
       return { total: manifest.assets.length, missing, shell: !!(await caches.match(new URL('index.html', location.href).href)) };

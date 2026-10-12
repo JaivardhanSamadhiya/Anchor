@@ -4,6 +4,39 @@ export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_PDF_PAGES = 10;
 const MAX_TEXT_CHARS = 500_000;
 const MAX_RENDER_PIXELS = 12_000_000;
+
+/** Source coordinates are optional, reproducible metadata, not the notice
+ * text. Bound them across the whole file so a dense PDF cannot crowd out the
+ * account's workspace capacity. Omitted areas receive no approximate match. */
+export function compactSourceLayout(layout) {
+  let remainingWords = 1200,
+    remainingBytes = 120000;
+  let truncated = false;
+  const pages = layout.slice(0, 10).map((page) => ({
+    ...page,
+    words: page.words.flatMap((box) => {
+      if (!remainingWords || box.text.length > 400) {
+        truncated = true;
+        return [];
+      }
+      const word = {
+        text: box.text,
+        ...Object.fromEntries(
+          ['x', 'y', 'w', 'h'].map((key) => [key, Math.round(box[key] * 10000) / 10000]),
+        ),
+      };
+      const size = new TextEncoder().encode(JSON.stringify(word)).length;
+      if (size > remainingBytes) {
+        truncated = true;
+        return [];
+      }
+      remainingWords--;
+      remainingBytes -= size;
+      return [word];
+    }),
+  }));
+  return { layout: pages, layoutTruncated: truncated };
+}
 const GUEST_DB_NAME = 'anchor-private-v1';
 const DB_VERSION = 1;
 let storageScope = 'guest';
@@ -113,7 +146,7 @@ async function loadPDFLibrary() {
   }
 }
 
-async function createOCRWorker(report, page, pages) {
+async function createOCRWorker(report, page, pages, language = 'en') {
   let library;
   try {
     library = await import('./vendor/tesseract.mjs');
@@ -122,13 +155,20 @@ async function createOCRWorker(report, page, pages) {
       'The local image reader is unavailable. Reconnect to this app once to load its OCR files, or paste the notice text instead.',
     );
   }
-  report('ocr-loading', 0.08, 'Loading the English OCR engine on this device…');
+  const languages = language === 'es' ? 'eng+spa' : 'eng';
+  report(
+    'ocr-loading',
+    0.08,
+    language === 'es'
+      ? 'Cargando el lector local de español e inglés…'
+      : 'Loading the English OCR engine on this device…',
+  );
   let accepted = false;
-  const pending = library.createWorker('eng', 1, {
+  const pending = library.createWorker(languages, 1, {
     workerPath: vendorURL('tesseract-worker.min.js'),
     corePath: vendorURL('core'),
     langPath: vendorURL('lang'),
-    cachePath: 'anchor-ocr-eng-v1',
+    cachePath: `anchor-ocr-${languages}-v1`,
     cacheMethod: 'write',
     workerBlobURL: false,
     gzip: true,
@@ -178,7 +218,7 @@ async function createOCRWorker(report, page, pages) {
 async function recognize(worker, input) {
   try {
     const result = await withDeadline(
-      worker.recognize(input),
+      worker.recognize(input, {}, { text: true, blocks: true }),
       120_000,
       'Reading this image took too long. Crop to one clearly readable page, use a sharper photo, or paste the notice text.',
     );
@@ -187,7 +227,19 @@ async function recognize(worker, input) {
       throw new Error(
         'The image contains too much text. Crop to the relevant notice page or paste its text.',
       );
-    return plain(text, MAX_TEXT_CHARS).trim();
+    const words = [];
+    for (const block of result?.data?.blocks || [])
+      for (const paragraph of block.paragraphs || [])
+        for (const line of paragraph.lines || [])
+          for (const word of line.words || []) {
+            if (words.length < 2000 && word.bbox && word.text)
+              words.push({ text: plain(word.text, 300), ...word.bbox });
+          }
+    return {
+      text: plain(text, MAX_TEXT_CHARS).trim(),
+      words,
+      confidence: Number(result?.data?.confidence) || 0,
+    };
   } catch (error) {
     if (error instanceof Error) throw error;
     throw new Error(
@@ -219,7 +271,7 @@ function pdfText(items) {
   return plain(lines.join('\n'), MAX_TEXT_CHARS).trim();
 }
 
-async function extractPDF(file, report) {
+async function extractPDF(file, report, options) {
   const library = await loadPDFLibrary();
   report('pdf-loading', 0.05, 'Opening the PDF on this device…');
   let loadingTask;
@@ -260,6 +312,8 @@ async function extractPDF(file, report) {
       );
     }
     const texts = [];
+    const layout = [];
+    const scanQuality = [];
     let usedOCR = false;
     for (let number = 1; number <= document.numPages; number += 1) {
       currentPage.current = number;
@@ -269,7 +323,29 @@ async function extractPDF(file, report) {
         `Reading PDF page ${number} of ${document.numPages}…`,
       );
       const page = await document.getPage(number);
-      let text = pdfText((await page.getTextContent()).items);
+      const content = (await page.getTextContent()).items;
+      let text = pdfText(content);
+      const natural = page.getViewport({ scale: 1 });
+      let wordBoxes = content
+        .filter((item) => typeof item.str === 'string' && item.str.trim())
+        .slice(0, 2000)
+        .map((item) => {
+          const x = item.transform[4],
+            y = item.transform[5];
+          const rect = natural.convertToViewportRectangle([
+            x,
+            y,
+            x + item.width,
+            y + (item.height || 10),
+          ]);
+          return {
+            text: item.str,
+            x: Math.min(rect[0], rect[2]) / natural.width,
+            y: Math.min(rect[1], rect[3]) / natural.height,
+            w: Math.abs(rect[2] - rect[0]) / natural.width,
+            h: Math.abs(rect[3] - rect[1]) / natural.height,
+          };
+        });
       // Scans sometimes have only a selectable header. Check sparse pages for
       // embedded images so that header text does not conceal the scanned body.
       const characterCount = text.replace(/\s/g, '').length;
@@ -285,7 +361,8 @@ async function extractPDF(file, report) {
       }
       if (characterCount < 40 || scannedBody) {
         usedOCR = true;
-        if (!worker) worker = await createOCRWorker(report, currentPage, document.numPages);
+        if (!worker)
+          worker = await createOCRWorker(report, currentPage, document.numPages, options.language);
         const original = page.getViewport({ scale: 1 });
         const scale = Math.min(
           2.1,
@@ -306,13 +383,26 @@ async function extractPDF(file, report) {
           await page.render({ canvasContext: context, viewport, background: 'rgb(255,255,255)' })
             .promise;
           const recognized = await recognize(worker, canvas);
-          if (recognized) text = recognized;
+          if (recognized.text) text = recognized.text;
+          wordBoxes = recognized.words.map((word) => ({
+            text: word.text,
+            x: word.x0 / canvas.width,
+            y: word.y0 / canvas.height,
+            w: (word.x1 - word.x0) / canvas.width,
+            h: (word.y1 - word.y0) / canvas.height,
+          }));
+          scanQuality.push({
+            page: number,
+            confidence: recognized.confidence,
+            needsReview: recognized.confidence < 80,
+          });
         } finally {
           canvas.width = 0;
           canvas.height = 0;
         }
       }
       texts.push(text);
+      layout.push({ page: number, width: natural.width, height: natural.height, words: wordBoxes });
       page.cleanup();
       if (texts.reduce((count, value) => count + value.length, 0) > MAX_TEXT_CHARS) {
         throw new Error(
@@ -329,7 +419,13 @@ async function extractPDF(file, report) {
         ? 'PDF read locally. Check OCR text carefully before confirming.'
         : 'PDF text read locally. Confirm the extracted details.',
     );
-    return { text: texts.join('\n\n'), kind: 'pdf', pages: document.numPages, ocr: usedOCR };
+    return {
+      text: texts.join('\n\n'),
+      kind: 'pdf',
+      pages: document.numPages,
+      ocr: usedOCR,
+      ...(options.includeLayout ? { ...compactSourceLayout(layout), scanQuality } : {}),
+    };
   } catch (error) {
     const message = String(error?.message || error);
     if (error?.name === 'PasswordException')
@@ -384,8 +480,8 @@ async function validateImage(file) {
   }
 }
 
-/** onProgress receives {stage, progress: 0..1, message}. OCR currently reads English. */
-export async function extractFile(file, onProgress) {
+/** OCR language is explicit; document layout is opt-in for older callers. */
+export async function extractFile(file, onProgress, options = {}) {
   const kind = validateFile(file);
   const report = reporter(onProgress);
   report('starting', 0, 'Reading your file locally…');
@@ -403,18 +499,55 @@ export async function extractFile(file, onProgress) {
     report('complete', 1, 'Text read locally. Confirm the extracted details.');
     return { text: cleaned, kind: 'text', pages: 1, ocr: false };
   }
-  if (kind === 'pdf') return extractPDF(file, report);
+  if (kind === 'pdf') return extractPDF(file, report, options);
   await validateImage(file);
   let worker;
   try {
-    worker = await createOCRWorker(report, { current: 1 }, 1);
-    const text = await recognize(worker, file);
+    worker = await createOCRWorker(report, { current: 1 }, 1, options.language);
+    const recognized = await recognize(worker, file);
+    const text = recognized.text;
     if (!text)
       throw new Error(
         'No readable text was found. Try a sharper, upright photo or paste the notice text.',
       );
     report('complete', 1, 'Image read locally. Check OCR text carefully before confirming.');
-    return { text, kind: 'image', pages: 1, ocr: true };
+    let layout = [];
+    if (options.includeLayout) {
+      const bitmap = await createImageBitmap(file);
+      layout = [
+        {
+          page: 1,
+          width: bitmap.width,
+          height: bitmap.height,
+          words: recognized.words.map((word) => ({
+            text: word.text,
+            x: word.x0 / bitmap.width,
+            y: word.y0 / bitmap.height,
+            w: (word.x1 - word.x0) / bitmap.width,
+            h: (word.y1 - word.y0) / bitmap.height,
+          })),
+        },
+      ];
+      bitmap.close();
+    }
+    return {
+      text,
+      kind: 'image',
+      pages: 1,
+      ocr: true,
+      ...(options.includeLayout
+        ? {
+            ...compactSourceLayout(layout),
+            scanQuality: [
+              {
+                page: 1,
+                confidence: recognized.confidence,
+                needsReview: recognized.confidence < 80,
+              },
+            ],
+          }
+        : {}),
+    };
   } finally {
     if (worker) await worker.terminate().catch(() => {});
   }

@@ -1,12 +1,18 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-10T02:43:09.651Z",
+  "generatedAt": "2026-10-12T17:56:03.120Z",
   "packages": {
     "pdfjs-dist": "4.10.38",
     "tesseract.js": "6.0.1",
     "tesseract.js-core": "6.0.0"
   },
   "ocrLanguage": "eng",
+  "ocrLanguages": [
+    "eng",
+    "spa"
+  ],
+  "spanishLanguageSource": "https://tessdata.projectnaptha.com/4.0.0/spa.traineddata.gz",
+  "spanishLanguageSha256": "6cd52c545bceeacb2e43fad64fc0703a711c482ba20d1ca4b6915c09de9973e6",
   "languageSource": "https://tessdata.projectnaptha.com/4.0.0/eng.traineddata.gz",
   "languageSha256": "ed350f3752f81ee8f38769edc14d92d997dababe23b565c59879372cc46a2468",
   "assets": [
@@ -723,6 +729,10 @@
       "bytes": 10923060
     },
     {
+      "path": "vendor/lang/spa.traineddata.gz",
+      "bytes": 8362819
+    },
+    {
       "path": "vendor/licenses/eng-Apache-2.0-LICENSE.txt",
       "bytes": 10174
     },
@@ -731,8 +741,16 @@
       "bytes": 330
     },
     {
+      "path": "vendor/licenses/jose.txt",
+      "bytes": 1079
+    },
+    {
       "path": "vendor/licenses/pdfjs-dist-LICENSE.txt",
       "bytes": 10174
+    },
+    {
+      "path": "vendor/licenses/spa-traineddata.txt",
+      "bytes": 257
     },
     {
       "path": "vendor/licenses/tesseract.js-core-LICENSE.txt",
@@ -748,7 +766,7 @@
     },
     {
       "path": "vendor/pdfjs.mjs",
-      "bytes": 331258
+      "bytes": 331242
     },
     {
       "path": "vendor/standard_fonts/FoxitDingbats.pfb",
@@ -824,7 +842,7 @@
     },
     {
       "path": "vendor/tesseract.mjs",
-      "bytes": 18238
+      "bytes": 18273
     }
   ]
 }

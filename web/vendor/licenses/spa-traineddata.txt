@@ -1,0 +1,4 @@
+Spanish language data distributed by the Tesseract.js project
+Source: https://tessdata.projectnaptha.com/4.0.0/spa.traineddata.gz
+License: Apache-2.0 (see eng-Apache-2.0-LICENSE.txt)
+SHA-256: 6cd52c545bceeacb2e43fad64fc0703a711c482ba20d1ca4b6915c09de9973e6

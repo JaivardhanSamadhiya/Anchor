@@ -21,7 +21,22 @@ const MONTHS = [
 ];
 const MONTH_PATTERN =
   '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?';
-const DATE_PATTERN = `\\b(?:\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?|${MONTH_PATTERN}\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{2,4})?)\\b`;
+const SPANISH_MONTHS = [
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+];
+const SPANISH_DATE = `\\d{1,2}\\s+de\\s+(?:${SPANISH_MONTHS.join('|')})\\s+de\\s+\\d{2,4}`;
+const DATE_PATTERN = `\\b(?:${SPANISH_DATE}|\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?|${MONTH_PATTERN}\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{2,4})?)\\b`;
 const SELECTED = /^(?:\[[xX✓✔]\]|☑|☒)\s*/u;
 const UNSELECTED = /^(?:\[\s*\]|☐)\s*/u;
 const UNCERTAIN_BOX = /^(?:[■□▣▪◼◻]|\[\?\])\s*/u;
@@ -66,6 +81,19 @@ function isoFromParts(year, month, day) {
 }
 
 function parseDate(raw) {
+  const spanish = raw.match(/^(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{2,4})$/i);
+  if (spanish) {
+    const date = isoFromParts(
+      spanish[3],
+      SPANISH_MONTHS.indexOf(spanish[2].toLowerCase()) + 1,
+      spanish[1],
+    );
+    return {
+      date,
+      needsReview: !date,
+      issue: date ? null : 'Verifica la fecha y el año completo en el aviso original.',
+    };
+  }
   let match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (match) {
     const date = isoFromParts(match[1], match[2], match[3]);
@@ -155,7 +183,12 @@ function sentenceBefore(text, position) {
 
 function deadlineKind(context) {
   // Conditional possibilities and rules are not case-specific dates.
-  if (/\b(?:if|for example|example|such as|may|might|could|can)\b/i.test(context)) return null;
+  if (
+    /\b(?:if|for example|example|such as|may|might|could|can|si|por ejemplo|puede|podr[ií]a)\b/i.test(
+      context,
+    )
+  )
+    return null;
   const cues = [
     {
       kind: 'end',
@@ -174,6 +207,20 @@ function deadlineKind(context) {
     },
   ];
   const matches = [];
+  // Spanish statements are read directly; offsets and quotations never pass
+  // through a translation model or a normalized replacement of the source.
+  for (const [kind, regex] of [
+    [
+      'end',
+      /(?:certificaci[oó]n|beneficios|cobertura)[^.!?;]*?(?:termina|vence|finaliza|se suspende)/gi,
+    ],
+    ['interview', /(?:entrevista|cita)[^.!?;]*?(?:programada|fecha|el|para)/gi],
+    [
+      'submit',
+      /(?:enviar|env[ií]e|entregar|entregue|devolver|devuelva|presentar|presente|proporcionar|proporcione|recibir|recibirse|completar|complete)[^.!?;]*?(?:antes de|a m[aá]s tardar|para el|el)|fecha l[ií]mite\s*:/gi,
+    ],
+  ])
+    for (const match of context.matchAll(regex)) matches.push({ kind, index: match.index });
   for (const cue of cues) {
     for (const match of context.matchAll(cue.regex))
       matches.push({ kind: cue.kind, index: match.index });
@@ -192,16 +239,26 @@ function isBoilerplate(text) {
   return (
     /^(?:if\b|for\s+example\b|such\s+as\b|(?:you\s+)?(?:may|might|could|can)\b|you\s+have\s+the\s+right\b|do\s+not\s+(?:send|submit|provide|return)\b)/i.test(
       statement,
-    ) || /\b(?:not\s+required|hearing\s+rights|appeal\s+rights)\b/i.test(statement)
+    ) ||
+    /^(?:si\b|por ejemplo\b|puede\b|podr[ií]a\b|no\s+(?:env[ií]e|entregue|presente|proporcione)|tiene derecho\b)/i.test(
+      statement,
+    ) ||
+    /\b(?:not\s+required|hearing\s+rights|appeal\s+rights|no se requiere|derechos de audiencia)\b/i.test(
+      statement,
+    )
   );
 }
 
 function requestKind(text) {
-  if (/\binterview\b/i.test(text)) return 'interview';
-  if (/\b(?:renewal|recertification|application)\s+form\b|\b(?:SAR\s*7|CF\s*37)\b/i.test(text))
+  if (/\b(?:interview|entrevista)\b/i.test(text)) return 'interview';
+  if (
+    /\b(?:renewal|recertification|application)\s+form\b|formulario de (?:renovaci[oó]n|recertificaci[oó]n|solicitud)|\b(?:SAR\s*7|CF\s*37)\b/i.test(
+      text,
+    )
+  )
     return 'form';
   if (
-    /\b(?:pay\s*stubs?|pay\s*slips?|proof|verification|statement|lease|rent|income|identity|identification|document|letter|records?|receipts?|birth\s+certificate|utility\s+bill)\b/i.test(
+    /\b(?:pay\s*stubs?|pay\s*slips?|proof|verification|statement|lease|rent|income|identity|identification|document|letter|records?|receipts?|birth\s+certificate|utility\s+bill|comprobantes?|ingresos|alquiler|renta|documentos?|identidad|recibos|talones|verificaci[oó]n)\b/i.test(
       text,
     )
   )
@@ -219,6 +276,79 @@ function requestTitle(text, kind) {
   if (kind === 'form') return 'Complete and return the requested form';
   if (kind === 'document') return cleaned.length <= 100 ? cleaned : `${cleaned.slice(0, 97)}…`;
   return cleaned.length <= 100 ? cleaned : `${cleaned.slice(0, 97)}…`;
+}
+
+// Translate only Anchor's guidance. Quotes and offsets always keep the exact
+// agency wording so Spanish review has the same evidence trail as English.
+function localizeNotice(result) {
+  if (result.language !== 'es') return result;
+  const copy = {
+    'No readable notice text was found. Paste the text or use a readable text-based PDF.':
+      'No se encontró texto legible. Pega el texto o utiliza un PDF legible con texto.',
+    'Multiple form codes were found. Add each notice separately; Anchor cannot safely combine them.':
+      'Se encontraron varios códigos de formulario. Agrega cada aviso por separado; Anchor no puede combinarlos con seguridad.',
+    'This notice is outside the supported CalFresh notice types. Read the original and contact the issuing agency; no action plan has been inferred.':
+      'Este aviso no corresponde a los tipos de CalFresh compatibles. Lee el original y contacta a la agencia; no se ha generado un plan.',
+    'More than one county is named. Verify which county issued this notice.':
+      'Se menciona más de un condado. Verifica cuál emitió el aviso.',
+    'Conflicting notice dates were found; no notice date was chosen.':
+      'Se encontraron fechas del aviso contradictorias; no se eligió una fecha.',
+    'Verify the notice date, including its year and date order, against the original.':
+      'Verifica la fecha del aviso, el año y el orden de la fecha en el original.',
+    'A square or unclear checkbox appears in extracted text. Compare the original before treating any option as selected.':
+      'El texto contiene una casilla o marca poco clara. Compara el original antes de considerar una opción seleccionada.',
+    'A relative renewal filing rule needs review. Anchor has not calculated a date from the certification end date.':
+      'La regla de plazo relativo de renovación necesita revisión. Anchor no calculó una fecha a partir del fin de certificación.',
+    'A relative deadline needs agency or user review. Anchor has not calculated a date from it.':
+      'El plazo relativo necesita revisión del usuario o la agencia. Anchor no calculó una fecha.',
+    'A selected option could not be understood as an evidence or action request. Review the original.':
+      'No se pudo interpretar una opción marcada como solicitud de comprobante o acción. Revisa el original.',
+    'An action contains an unfilled field. Review the original; Anchor has not guessed the missing details.':
+      'Una acción contiene un campo vacío. Revisa el original; Anchor no adivinó los datos faltantes.',
+    'No explicit case-specific deadline was safely recognized. Check the original and ask the issuing agency if anything is due.':
+      'No se reconoció con seguridad un plazo explícito de tu caso. Revisa el original y pregunta a la agencia si hay una fecha límite.',
+    'No definite requested action or clearly selected evidence was safely recognized. Unmarked examples are not treated as requirements.':
+      'No se reconoció con seguridad una acción definida o comprobante claramente seleccionado. Los ejemplos sin marcar no son requisitos.',
+    'The issuing county was not established. Verify its name on the original notice.':
+      'No se estableció el condado emisor. Verifica su nombre en el aviso original.',
+    'The date is not a valid calendar date.': 'La fecha no es válida en el calendario.',
+    'The date needs a full four-digit year; Anchor will not guess it.':
+      'La fecha necesita el año completo de cuatro dígitos; Anchor no lo adivina.',
+    'The numeric date is invalid or may use a different date order.':
+      'La fecha numérica no es válida o utiliza otro orden.',
+    'Confirm the month/day order of this numeric date against the original notice.':
+      'Verifica el orden mes/día de esta fecha numérica en el aviso original.',
+    'Anchor could not safely read this date.': 'Anchor no pudo leer esta fecha con seguridad.',
+    'Complete the interview described in this notice':
+      'Completa la entrevista descrita en este aviso',
+    'Complete and return the requested form': 'Completa y entrega el formulario solicitado',
+    'To renew, complete the application steps described here':
+      'Para renovar, completa los pasos de solicitud descritos aquí',
+    'This instruction applies if you choose to renew. Read the original for the application and interview steps; unmarked evidence examples are not individual document requirements.':
+      'Esta instrucción corresponde si decides renovar. Lee el original para los pasos de solicitud y entrevista; los ejemplos sin marcar no son requisitos individuales.',
+    'This action comes from the highlighted notice text. Verify the original before completing it.':
+      'Esta acción proviene del texto resaltado del aviso. Verifica el original antes de completarla.',
+    'Submit requested items': 'Entrega los documentos solicitados',
+    'Interview date': 'Fecha de entrevista',
+    'Certification or benefits end': 'Fin de certificación o beneficios',
+    'Renewal filing rule — verify the exact date':
+      'Regla de plazo de renovación — verifica la fecha exacta',
+    'Renewal application date': 'Fecha de solicitud de renovación',
+    'Relative deadline — verify the exact date': 'Plazo relativo — verifica la fecha exacta',
+  };
+  result.warnings = result.warnings.map(
+    (text) =>
+      copy[text] ||
+      (/^Different .* dates appear in this notice\./.test(text)
+        ? 'Este aviso contiene fechas distintas para el mismo tipo de acción. Pueden ser pasos diferentes; confirma cada fecha con la agencia.'
+        : text),
+  );
+  for (const request of result.requests) {
+    request.title = copy[request.title] || request.title;
+    request.description = copy[request.description] || request.description;
+  }
+  for (const deadline of result.deadlines) deadline.label = copy[deadline.label] || deadline.label;
+  return result;
 }
 
 /** Exact offsets are into sourceText, without normalizing whitespace or newlines. */
@@ -242,12 +372,18 @@ export function analyzeNotice(text, options = {}) {
     warnings: [],
     createdAt: Number.isNaN(now.getTime()) ? new Date().toISOString() : now.toISOString(),
     isDemo: options.isDemo === true,
+    language:
+      /fecha del aviso|documentos solicitados|su entrevista|aviso de|ingresos|renovaci[oó]n|solicitud|proporcione|recertificaci[oó]n/i.test(
+        sourceText,
+      )
+        ? 'es'
+        : 'en',
   };
   if (!sourceText.trim()) {
     result.warnings.push(
       'No readable notice text was found. Paste the text or use a readable text-based PDF.',
     );
-    return result;
+    return localizeNotice(result);
   }
   const lines = sourceLines(sourceText);
   const codes = unique(
@@ -261,7 +397,7 @@ export function analyzeNotice(text, options = {}) {
   result.formCode = codes.length === 1 ? codes[0] : null;
   const explicitInterview =
     explicitCalFresh &&
-    /\b(?:interview\s+appointment|interview\s+(?:is\s+)?scheduled|your\s+(?:CalFresh\s+)?interview\s+(?:date|is\s+on))\b/i.test(
+    /\b(?:interview\s+appointment|interview\s+(?:is\s+)?scheduled|your\s+(?:CalFresh\s+)?interview\s+(?:date|is\s+on)|su entrevista|cita de entrevista)\b/i.test(
       sourceText,
     );
   if (codes.length > 1) {
@@ -283,6 +419,13 @@ export function analyzeNotice(text, options = {}) {
     );
   }
   result.title = TYPE_TITLES[result.type];
+  if (result.language === 'es')
+    result.title = {
+      renewal: 'Renovación de CalFresh',
+      verification: 'Solicitud de información de CalFresh',
+      interview: 'Entrevista de CalFresh',
+      unknown: 'Aviso por revisar',
+    }[result.type];
   const counties = [];
   if (/\bSanta\s+Clara\b/i.test(sourceText)) counties.push('santa-clara');
   if (/\bSan\s+Mateo\b/i.test(sourceText)) counties.push('san-mateo');
@@ -294,8 +437,8 @@ export function analyzeNotice(text, options = {}) {
   const noticeDates = [];
   for (let index = 0; index < lines.length; index++) {
     const current = lines[index];
-    if (!/\bnotice\s+date\s*:/i.test(current.quote)) continue;
-    let found = datesIn(current.quote.split(/\bnotice\s+date\s*:/i).at(-1));
+    if (!/\bnotice\s+date\s*:|fecha del aviso\s*:/i.test(current.quote)) continue;
+    let found = datesIn(current.quote.split(/\bnotice\s+date\s*:|fecha del aviso\s*:/i).at(-1));
     if (!found.length && lines[index + 1] && /^\s*$/.test(current.quote.split(':').at(-1))) {
       const nextDates = datesIn(lines[index + 1].quote);
       if (nextDates.length === 1 && lines[index + 1].quote === nextDates[0].raw) found = nextDates;
@@ -310,7 +453,7 @@ export function analyzeNotice(text, options = {}) {
     result.warnings.push(
       'Verify the notice date, including its year and date order, against the original.',
     );
-  if (!result.supported) return result;
+  if (!result.supported) return localizeNotice(result);
 
   let requestSection = false;
   for (let index = 0; index < lines.length; index++) {
@@ -395,7 +538,7 @@ export function analyzeNotice(text, options = {}) {
       continue;
     }
     if (
-      /^(?:requested\s+(?:items|documents|information)|items\s+(?:you\s+must\s+provide|requested)|you\s+must\s+provide)\s*:\s*$/i.test(
+      /^(?:requested\s+(?:items|documents|information)|items\s+(?:you\s+must\s+provide|requested)|you\s+must\s+provide|documentos solicitados|informaci[oó]n solicitada|debe proporcionar)\s*:\s*$/i.test(
         value,
       )
     ) {
@@ -409,7 +552,7 @@ export function analyzeNotice(text, options = {}) {
     )
       requestSection = false;
 
-    if (!/\bnotice\s+date\s*:/i.test(value) && !isBoilerplate(value)) {
+    if (!/\bnotice\s+date\s*:|fecha del aviso\s*:/i.test(value) && !isBoilerplate(value)) {
       const found = datesIn(value);
       for (const date of found) {
         let context = sentenceBefore(value, date.index);
@@ -448,11 +591,13 @@ export function analyzeNotice(text, options = {}) {
       }
       // These are source-backed review items, never computed dates.
       const relative = value.match(
-        /\b(?:within\s+\d+\s+(?:calendar\s+|business\s+)?days?|(?:\d{1,2})(?:st|nd|rd|th)\s+day\s+of\s+[^.;]+|before\s+the\s+end\s+of\s+[^.;]+)/i,
+        /\b(?:within\s+\d+\s+(?:calendar\s+|business\s+)?days?|(?:\d{1,2})(?:st|nd|rd|th)\s+day\s+of\s+[^.;]+|before\s+the\s+end\s+of\s+[^.;]+|dentro de \d+ d[ií]as)/i,
       );
       if (
         relative &&
-        /\b(?:submit|return|provide|turn\s+in|file|complete|due|application)\b/i.test(value)
+        /\b(?:submit|return|provide|turn\s+in|file|complete|due|application|env[ií]e|entregue|presente|proporcione|complete)\b/i.test(
+          value,
+        )
       ) {
         result.deadlines.push({
           id: `${id}-relative-${source.start}`,
@@ -471,7 +616,7 @@ export function analyzeNotice(text, options = {}) {
     }
 
     const directRequest =
-      /\b(?:please\s+(?:submit|return|provide|send|bring|complete)|you\s+must\s+(?:submit|return|provide|send|bring|file|complete)|we\s+(?:need|request)\s+(?:your|the)|submit\s+(?:your|the)|return\s+(?:your|the)|provide\s+(?:your|proof)|bring\s+(?:your|proof))\b/i.test(
+      /\b(?:please\s+(?:submit|return|provide|send|bring|complete)|you\s+must\s+(?:submit|return|provide|send|bring|file|complete)|we\s+(?:need|request)\s+(?:your|the)|submit\s+(?:your|the)|return\s+(?:your|the)|provide\s+(?:your|proof)|bring\s+(?:your|proof)|por favor (?:env[ií]e|entregue|presente|proporcione|complete)|debe (?:enviar|entregar|presentar|proporcionar|completar))\b/i.test(
         value,
       );
     const definiteInterview =
@@ -534,7 +679,7 @@ export function analyzeNotice(text, options = {}) {
       'The issuing county was not established. Verify its name on the original notice.',
     );
   result.warnings = unique(result.warnings);
-  return result;
+  return localizeNotice(result);
 }
 
 function normalizeRequest(request) {
