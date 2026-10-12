@@ -122,6 +122,80 @@ test('cloud schemas reject text, documents, malformed intents, and missing age c
   assert.equal(reconstructed.sourceVersion, policy.SOURCE_VERSION);
 });
 
+test('packet and knowledge navigation remain enum-only and validate bilingual destination round trips', () => {
+  for (const [question, language, destination, label] of [
+    ['Where do I check my packet?', 'en', 'readiness', 'Check packet'],
+    ['¿Dónde puedo revisar el paquete?', 'es', 'readiness', 'Revisar paquete'],
+    ['Open the knowledge library', 'en', 'library', 'Knowledge library'],
+    ['Abrir la biblioteca de orientación', 'es', 'library', 'Biblioteca de orientación'],
+  ]) {
+    const local = policy.classifyPublicQuestion(question, 'calfresh', language);
+    assert.deepEqual(local.request, {
+      program: 'navigation',
+      questionId: 'navigate',
+      focus: 'general',
+      language,
+      destination,
+    });
+    const topic = { ...local.request, adultConfirmed: true };
+    assert.deepEqual(policy.parseAssistantRequest(topic), topic);
+    assert.equal('question' in topic, false);
+    const prompt = JSON.parse(policy.geminiPrompt(topic));
+    assert.equal(prompt.requestedDestination, destination);
+    assert.ok(prompt.allowedNavigation.includes(destination));
+    assert.deepEqual(prompt.retrievedPassages, []);
+
+    const fallback = policy.sourceGuidance(topic);
+    assert.deepEqual(fallback.navigation, { page: destination, label });
+    assert.ok(policy.parseAssistantResponse(fallback, topic));
+    const modelResponse = policy.normalizeGeminiResponse(
+      {
+        answer:
+          language === 'es'
+            ? 'Usa el botón para abrir esta página de Anchor y revisar la información.'
+            : 'Use the button to open this Anchor page and review the information.',
+        citationIds: [],
+        navigationPage: destination,
+      },
+      topic,
+    );
+    assert.ok(modelResponse);
+    assert.deepEqual(modelResponse.navigation, { page: destination, label });
+    assert.ok(policy.parseAssistantResponse(modelResponse, topic));
+
+    // A valid destination is a suggestion only. Responses cannot substitute a
+    // different page, add a URL/action, or echo private typed text into a request.
+    const different = destination === 'readiness' ? 'library' : 'readiness';
+    assert.equal(
+      policy.normalizeGeminiResponse(
+        {
+          answer: 'Use the button to open this Anchor page and review the information.',
+          citationIds: [],
+          navigationPage: different,
+        },
+        topic,
+      ),
+      null,
+    );
+    assert.equal(
+      policy.parseAssistantResponse({ ...modelResponse, action: 'submit' }, topic),
+      null,
+    );
+    assert.equal(
+      policy.parseAssistantResponse(
+        {
+          ...modelResponse,
+          navigation: { ...modelResponse.navigation, url: 'https://attacker.invalid' },
+        },
+        topic,
+      ),
+      null,
+    );
+    assert.equal(policy.parseAssistantRequest({ ...topic, question }), null);
+    assert.equal(policy.parseAssistantRequest({ ...topic, destination: '#readiness' }), null);
+  }
+});
+
 test('paired-program questions retrieve both authoritative packs and only approved comparisons', () => {
   for (const [question, focus, expectedIds] of [
     ['How does SSI differ from SSDI?', 'ssi-vs-ssdi', ['ssi', 'ssdi']],

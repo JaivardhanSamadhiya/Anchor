@@ -1,0 +1,154 @@
+{
+  "version": "2026-10-12",
+  "policy": "Initial release fingerprints recorded after official-content review. Fetch failures have no accepted fingerprint. Changes require manual review.",
+  "sources": [
+    {
+      "id": "snap",
+      "url": "https://www.usa.gov/food-stamps",
+      "reviewedAt": "2026-10-12",
+      "sha256": "9db245e5ffdb3b5cf69b42ab65a979cf9e6429259c28d4b7786e6a96ad3784d3",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "calfresh",
+      "url": "https://www.cdss.ca.gov/inforesources/calfresh",
+      "reviewedAt": "2026-10-12",
+      "sha256": "1393c949dba2b191c59ad413c65b88c1760f69bbbbebd9f1ff3441e1210a5bb7",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "cf37",
+      "url": "https://www.cdss.ca.gov/cdssweb/entres/forms/english/cf37.pdf",
+      "reviewedAt": "2026-10-12",
+      "sha256": "6ea8f69d928c30b6fa213e3e4a2f00e094b9f516e731b98807e1d9834e67b64c",
+      "algorithm": "pdf-bytes-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "sar7b",
+      "url": "https://www.cdss.ca.gov/Portals/9/Additional-Resources/Forms-and-Brochures/2020/Q-T/SAR7B.pdf?ver=2024-08-27-151418-733",
+      "reviewedAt": "2026-10-12",
+      "sha256": "d2bfc272399e15a9fbd445c0ea829f3aa6ad16bfbb8ed1265e3fea95cadee342",
+      "algorithm": "pdf-bytes-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "sar7ab",
+      "url": "https://www.cdss.ca.gov/Portals/9/Additional-Resources/Forms-and-Brochures/2020/Q-T/SAR7AB.pdf?ver=2024-08-27-171357-980",
+      "reviewedAt": "2026-10-12",
+      "sha256": "9671455279c2458584a36121d81995a8448ba616786c5208e0a6fcc145eaa41b",
+      "algorithm": "pdf-bytes-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "calfresh-contact",
+      "url": "https://www.cdss.ca.gov/inforesources/calfresh/contacts",
+      "reviewedAt": "2026-10-12",
+      "sha256": "ca334e653f4445e646b4b61a861d2661ef1a79db915e396ce7391c8cdce432bc",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "santa-clara-renewal",
+      "url": "https://stgenssa.sccgov.org/debs/program_handbooks/calfresh/assets/CalFresh/Recertification/Forms.htm",
+      "reviewedAt": "2026-10-12",
+      "sha256": "41327a388305cadbeea48cc6666b7154304ff92ca02bb9bed3d5848680421328",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "san-mateo-renewal",
+      "url": "https://www.smcgov.org/hsa/already-receiving-calfresh",
+      "reviewedAt": "2026-10-12",
+      "sha256": "0a8d0b803c77a4455e9eec87bdc14b33a65ed06b4dbb5f4bd30acff75bd541a6",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "medicaid",
+      "url": "https://www.usa.gov/medicaid-chip-insurance",
+      "reviewedAt": "2026-10-12",
+      "sha256": "20ad382726b8492231033f47056a502028ffef6013b1d5b417e4fa4f5ac8c466",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "medi-cal",
+      "url": "https://www.dhcs.ca.gov/medi-cal/",
+      "reviewedAt": "2026-10-12",
+      "sha256": null,
+      "algorithm": null,
+      "verification": "reviewed-via-browser-no-fetch-fingerprint",
+      "reason": "fetch_or_content_failed"
+    },
+    {
+      "id": "medi-cal-contact",
+      "url": "https://www.dhcs.ca.gov/contact-us/",
+      "reviewedAt": "2026-10-12",
+      "sha256": null,
+      "algorithm": null,
+      "verification": "reviewed-via-browser-no-fetch-fingerprint",
+      "reason": "fetch_or_content_failed"
+    },
+    {
+      "id": "medicare",
+      "url": "https://www.medicare.gov/basics/get-started-with-medicare",
+      "reviewedAt": "2026-10-12",
+      "sha256": "17716ab38ef55182b923d92cfa327763da09732d7ad40c29ba4ba757145e3db1",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "ssi",
+      "url": "https://www.ssa.gov/ssi",
+      "reviewedAt": "2026-10-12",
+      "sha256": null,
+      "algorithm": null,
+      "verification": "reviewed-via-browser-no-fetch-fingerprint",
+      "reason": "http_403"
+    },
+    {
+      "id": "ssdi",
+      "url": "https://www.ssa.gov/disability",
+      "reviewedAt": "2026-10-12",
+      "sha256": null,
+      "algorithm": null,
+      "verification": "reviewed-via-browser-no-fetch-fingerprint",
+      "reason": "http_403"
+    },
+    {
+      "id": "housing",
+      "url": "https://www.usa.gov/housing-voucher-section-8",
+      "reviewedAt": "2026-10-12",
+      "sha256": "adb0f06eabad08ee49019bd721365c8cd1cfc920663c0c481be8bf34084d6400",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "wic",
+      "url": "https://www.usa.gov/food-assistance",
+      "reviewedAt": "2026-10-12",
+      "sha256": "de8f7450bc7b3924684c34ebc3a2b2e10dead16d20762821f337f847aa28adb4",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "energy",
+      "url": "https://www.usa.gov/help-with-energy-bills",
+      "reviewedAt": "2026-10-12",
+      "sha256": "db0d5bd183e4f7514d6fb11d739eefcca68b1187cb25031fe5f0d2f1afa53dde",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    },
+    {
+      "id": "unemployment",
+      "url": "https://www.usa.gov/unemployment-benefits",
+      "reviewedAt": "2026-10-12",
+      "sha256": "9c7a62321c292acd78d1c8bfcf5d03c3b1aee9217573cc1bad6a51d59482a70c",
+      "algorithm": "html-public-text-sha256",
+      "verification": "reviewed-official-content"
+    }
+  ]
+}

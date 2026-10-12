@@ -24,8 +24,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Verify assistant policy, transport, and quota SQL
-        run: node --test tests/program-assistant.test.mjs
+      - name: Verify assistant policy, public retrieval, transport, and quota SQL
+        run: node --test tests/program-assistant.test.mjs tests/knowledge-library.test.mjs
       - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
         with:
           version: 2.120.0

@@ -5,9 +5,17 @@
  * can become Gemini input, even if a caller bypasses the UI.
  */
 import { parseFormContext, publicFormKnowledge, type FormContext } from './form-policy.ts';
+import {
+  citationsForKnowledge,
+  KNOWLEDGE_JURISDICTIONS,
+  KNOWLEDGE_VERSION,
+  retrievePublicKnowledge,
+  type KnowledgeJurisdiction,
+} from './knowledge-library.ts';
 export * from './form-policy.ts';
+export * from './knowledge-library.ts';
 
-export const SOURCE_VERSION = '2026-10-11';
+export const SOURCE_VERSION = KNOWLEDGE_VERSION;
 export const PROGRAM_IDS = [
   'calfresh',
   'medi-cal',
@@ -55,6 +63,8 @@ export const NAVIGATION_PAGES = [
   'calendar',
   'support',
   'forms',
+  'readiness',
+  'library',
 ] as const;
 export type ProgramId = (typeof PROGRAM_IDS)[number];
 export type QuestionId = (typeof QUESTION_IDS)[number];
@@ -69,6 +79,7 @@ export interface AssistantRequest {
   adultConfirmed: true;
   destination?: NavigationPage;
   formContext?: FormContext;
+  jurisdiction?: KnowledgeJurisdiction;
 }
 export interface Citation {
   id: string;
@@ -330,8 +341,19 @@ function knowledgeForRequest(request: AssistantRequest): ProgramKnowledge {
     facts: entries.flatMap((entry) => entry.facts),
   };
 }
-export const sourcesForRequest = (request: AssistantRequest): Citation[] =>
-  knowledgeForRequest(request).sources.map((item) => ({ ...item }));
+export const sourcesForRequest = (request: AssistantRequest): Citation[] => {
+  const original = knowledgeForRequest(request).sources;
+  const retrieved = citationsForKnowledge(request);
+  // Keep the selected official form's citation scope exact. County program
+  // guidance is available in the program assistant and public library view.
+  const allowed = request.formContext
+    ? retrieved.filter((entry) => original.some((source) => source.id === entry.id))
+    : retrieved;
+  const unique = new Map<string, Citation>();
+  for (const item of [...original, ...allowed])
+    if (!unique.has(item.id)) unique.set(item.id, { ...item });
+  return [...unique.values()];
+};
 const PAGE_LABELS: Record<NavigationPage, string> = {
   overview: 'Overview',
   notices: 'My notices',
@@ -339,6 +361,8 @@ const PAGE_LABELS: Record<NavigationPage, string> = {
   calendar: 'Calendar',
   support: 'Get support',
   forms: 'Form workspace',
+  readiness: 'Check packet',
+  library: 'Knowledge library',
 };
 const PAGE_LABELS_ES: Record<NavigationPage, string> = {
   overview: 'Resumen',
@@ -347,6 +371,8 @@ const PAGE_LABELS_ES: Record<NavigationPage, string> = {
   calendar: 'Calendario',
   support: 'Obtener ayuda',
   forms: 'Espacio de formularios',
+  readiness: 'Revisar paquete',
+  library: 'Biblioteca de orientación',
 };
 const validMember = <T extends string>(value: unknown, values: readonly T[]): value is T =>
   typeof value === 'string' && values.includes(value as T);
@@ -362,6 +388,7 @@ export function parseAssistantRequest(value: unknown): AssistantRequest | null {
     'adultConfirmed',
     'destination',
     'formContext',
+    'jurisdiction',
   ];
   if (Object.keys(data).some((key) => !allowed.includes(key))) return null;
   if (
@@ -373,6 +400,8 @@ export function parseAssistantRequest(value: unknown): AssistantRequest | null {
   )
     return null;
   if (data.destination !== undefined && !validMember(data.destination, NAVIGATION_PAGES))
+    return null;
+  if (data.jurisdiction !== undefined && !validMember(data.jurisdiction, KNOWLEDGE_JURISDICTIONS))
     return null;
   if ((data.program === 'navigation') !== (data.questionId === 'navigate')) return null;
   if (data.program === 'navigation' && (!data.destination || data.focus !== 'general')) return null;
@@ -398,6 +427,7 @@ export function parseAssistantRequest(value: unknown): AssistantRequest | null {
     adultConfirmed: true,
     ...(data.destination ? { destination: data.destination as NavigationPage } : {}),
     ...(formContext ? { formContext } : {}),
+    ...(data.jurisdiction ? { jurisdiction: data.jurisdiction as KnowledgeJurisdiction } : {}),
   };
 }
 
@@ -473,6 +503,8 @@ export function classifyPublicQuestion(
         : 'I can help with covered programs and navigation in Anchor.',
     );
   const pageTests: [NavigationPage, RegExp][] = [
+    ['readiness', /(?:check|review|open|where|show|revisar|abrir|donde).*(?:packet|supporting evidence|comprobante|paquete)/],
+    ['library', /(?:search|open|find|where|show|buscar|abrir|donde).*(?:library|reviewed guidance|biblioteca|orientacion)/],
     ['calendar', /calendar|calendario|google calendar/],
     [
       'forms',
@@ -611,10 +643,12 @@ const navigationFor = (request: AssistantRequest) => {
 
 export function sourceGuidance(request: AssistantRequest, message?: string): AssistantResponse {
   const knowledge = knowledgeForRequest(request);
+  const evidence = retrievePublicKnowledge(request, 2);
+  const retrieved = evidence.map((entry) => entry.text).join('\n\n');
   if (request.formContext)
     return {
       mode: 'source-guidance',
-      answer: `${request.language === 'es' ? knowledge.summaryEs : knowledge.summary}\n\n${publicCaveat(request.language)}`,
+      answer: `${request.language === 'es' ? knowledge.summaryEs : knowledge.summary}${retrieved ? `\n\n${retrieved}` : ''}\n\n${publicCaveat(request.language)}`,
       citations: knowledge.sources.map((item) => ({ ...item })),
       navigation: navigationFor(request),
       sourceVersion: SOURCE_VERSION,
@@ -686,8 +720,8 @@ export function sourceGuidance(request: AssistantRequest, message?: string): Ass
   const action = actionAdvice[request.questionId] || '';
   return {
     mode: 'source-guidance',
-    answer: `${request.language === 'es' ? knowledge.summaryEs : knowledge.summary}${action ? `\n\n${action}` : ''}${extra ? `\n\n${extra}` : ''}${request.program === 'navigation' ? '' : `\n\n${publicCaveat(request.language)}`}`,
-    citations: knowledge.sources.map((item) => ({ ...item })),
+    answer: `${request.language === 'es' ? knowledge.summaryEs : knowledge.summary}${retrieved ? `\n\n${retrieved}` : ''}${action ? `\n\n${action}` : ''}${extra ? `\n\n${extra}` : ''}${request.program === 'navigation' ? '' : `\n\n${publicCaveat(request.language)}`}`,
+    citations: sourcesForRequest(request),
     navigation: navigationFor(request),
     sourceVersion: SOURCE_VERSION,
     ...(message ? { message } : {}),
@@ -697,6 +731,8 @@ export function sourceGuidance(request: AssistantRequest, message?: string): Ass
 export function geminiPrompt(request: AssistantRequest): string {
   const knowledge = knowledgeForRequest(request);
   const form = request.formContext ? publicFormKnowledge(request.formContext) : null;
+  const retrieved = retrievePublicKnowledge(request);
+  const sources = sourcesForRequest(request);
   return JSON.stringify({
     task: form?.task || QUESTION_LABELS[request.questionId],
     focus: FOCUS_LABELS[request.focus],
@@ -704,8 +740,14 @@ export function geminiPrompt(request: AssistantRequest): string {
     language: request.language === 'es' ? 'Spanish' : 'English',
     requestedDestination: request.destination || null,
     sourceVersion: SOURCE_VERSION,
-    sourceFacts: knowledge.facts,
-    sourceUrls: knowledge.sources.map(({ id, title, url }) => ({ id, title, url })),
+    jurisdiction: request.jurisdiction || 'california',
+    retrievalMethod: 'BM25 with public intent, form-section and jurisdiction filters',
+    retrievedPassages: retrieved,
+    sourceFacts: [
+      ...knowledge.facts,
+      ...retrieved.map((entry) => `[${entry.sourceId}] ${entry.text}`),
+    ],
+    sourceUrls: sources.map(({ id, title, url }) => ({ id, title, url })),
     ...(form
       ? {
           publicForm: {
@@ -718,7 +760,7 @@ export function geminiPrompt(request: AssistantRequest): string {
           },
         }
       : {}),
-    allowedCitations: knowledge.sources.map((item) => item.id),
+    allowedCitations: sources.map((item) => item.id),
     allowedNavigation: NAVIGATION_PAGES,
   });
 }
