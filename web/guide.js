@@ -50,6 +50,17 @@ export function guideSteps(lang = 'en') {
         : 'Marking an item prepared does not send it to the county.',
     },
     {
+      id: 'readiness',
+      page: 'readiness',
+      title: es ? 'Revisa el paquete antes de enviar' : 'Check your packet before sending',
+      body: es
+        ? 'Agrega los comprobantes solicitados y verifica su tipo, persona y período en el original. Anchor señala meses diferentes, documentos faltantes y ciertos importes distintos del formulario.'
+        : 'Add the requested proof and verify its kind, person and reporting period against the original. Anchor flags different months, missing evidence and certain amount differences with your form.',
+      tip: es
+        ? 'Elige qué incluir en un PDF para tu cita. Los formularios oficiales editables se descargan por separado.'
+        : 'Choose what to include in an appointment PDF. Editable official forms remain separate downloads.',
+    },
+    {
       id: 'evidence',
       page: 'evidence',
       title: es ? 'Conserva pruebas de lo que envías' : 'Keep proof of what you send',
@@ -70,6 +81,17 @@ export function guideSteps(lang = 'en') {
       tip: es
         ? 'La comparación organiza tus próximos pasos; no predice aprobación de beneficios.'
         : 'The comparison organizes next steps; it does not predict benefit approval.',
+    },
+    {
+      id: 'library',
+      page: 'library',
+      title: es ? 'Consulta una respuesta con su fuente' : 'Find an answer with its source',
+      body: es
+        ? 'Busca orientación revisada por programa y condado, y abre las instrucciones oficiales. También puedes pedir a Anchor una explicación de un tema público desde el asistente.'
+        : 'Search reviewed guidance by program and county, then open the official instructions. You can also ask Anchor to explain a public topic from the assistant.',
+      tip: es
+        ? 'La búsqueda se realiza en este dispositivo. Los resúmenes no deciden la elegibilidad de tu caso.'
+        : 'Search runs on this device. The summaries do not decide your case eligibility.',
     },
     {
       id: 'support',

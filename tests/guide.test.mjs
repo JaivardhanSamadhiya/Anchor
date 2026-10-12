@@ -6,16 +6,16 @@ import { guideSteps, GUIDE_STORAGE_KEY } from '../web/guide.js';
 
 test('walkthrough covers navigation, account storage, original review, plan, receipts and human help', () => {
   const steps = guideSteps();
-  assert.equal(steps.length, 7);
+  assert.equal(steps.length, 9);
   assert.deepEqual(
     steps.map((step) => step.id),
-    ['overview', 'account', 'notices', 'plan', 'evidence', 'continuity', 'support'],
+    ['overview', 'account', 'notices', 'plan', 'readiness', 'evidence', 'continuity', 'library', 'support'],
   );
   assert.match(steps[1].body, /Google/);
   assert.match(steps[1].body, /guest.*device/i);
   assert.match(steps[2].body, /exact wording/);
   assert.match(steps[3].tip, /does not send/);
-  assert.match(steps[4].tip, /does not confirm county acceptance/);
+  assert.match(steps.find(step => step.id === 'evidence').tip, /does not confirm county acceptance/);
   assert.ok(steps.every((step) => step.title && step.body && step.tip && step.page));
   assert.equal(GUIDE_STORAGE_KEY, 'anchor-guide-session-v2');
 });
@@ -52,7 +52,7 @@ const cueSource = (
 ).code;
 const fixtureHTML = `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><style>
 body{margin:0;font:16px Arial;background:#f5f6ee}header{height:60px;display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:0 20px}.nav{position:fixed;left:0;top:80px;width:210px;display:grid;gap:10px}.nav button{height:45px}.content{margin-left:230px;padding:20px}.page-head{padding:15px;border:1px solid #ccd9c2}@media(max-width:700px){.nav{transform:translateX(-110%)}.content{margin-left:0;padding:14px}}button{font:inherit}
-</style><header><button data-action="account">Sign in</button><button id="guide-button" data-action="guide">Guide</button></header><nav class="nav">${['overview', 'notices', 'plan', 'evidence', 'continuity', 'support'].map((page) => `<button data-action="nav" data-page="${page}">${page}</button>`).join('')}</nav><main id="main" class="content" tabindex="-1"><div class="page-head"><h1>overview</h1></div></main><dialog id="modal"></dialog>`;
+</style><header><button data-action="account">Sign in</button><button id="guide-button" data-action="guide">Guide</button></header><nav class="nav">${['overview', 'notices', 'plan', 'readiness', 'evidence', 'continuity', 'library', 'support'].map((page) => `<button data-action="nav" data-page="${page}">${page}</button>`).join('')}</nav><main id="main" class="content" tabindex="-1"><div class="page-head"><h1>overview</h1></div></main><dialog id="modal"></dialog>`;
 async function installFixture(page, lang = 'en') {
   await page.goto(new URL('/guide-fixture', process.env.ANCHOR_BROWSER_TEST_URL).href);
   await page.addStyleTag({ content: css });
@@ -128,7 +128,7 @@ test(
       await page.locator('[data-guide-action="back"]').click();
       await page.locator('#main h1').filter({ hasText: 'overview' }).waitFor();
       await page.locator('[data-guide-action="next"]').click();
-      for (const pageName of ['plan', 'evidence', 'continuity', 'support']) {
+      for (const pageName of ['plan', 'readiness', 'evidence', 'continuity', 'library', 'support']) {
         await page.locator('[data-guide-action="next"]').click();
         await page.locator('#main h1').filter({ hasText: pageName }).waitFor();
       }

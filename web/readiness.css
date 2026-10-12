@@ -1,0 +1,225 @@
+.readiness-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 22px;
+}
+.readiness-layout .panel {
+  min-width: 0;
+}
+.readiness-finding,
+.readiness-document {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border, #deded3);
+}
+.readiness-finding:first-child,
+.readiness-document:first-child {
+  padding-top: 0;
+}
+.readiness-finding:last-child,
+.readiness-document:last-child {
+  border-bottom: 0;
+}
+.readiness-finding h3,
+.readiness-document h3 {
+  font-size: 18px;
+  margin: 10px 0;
+}
+.readiness-finding p,
+.readiness-document p,
+.knowledge-card p {
+  line-height: 1.65;
+  margin: 10px 0;
+}
+.readiness-finding blockquote {
+  padding: 12px 15px;
+  margin: 12px 0;
+  background: #f7f2e3;
+  border-left: 3px solid #b3934d;
+  overflow-wrap: anywhere;
+}
+.readiness-document h3 {
+  overflow-wrap: anywhere;
+}
+.evidence-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow: auto;
+  background: #f6f5ec;
+  padding: 16px;
+  font: 14px/1.6 monospace;
+}
+.packet-choices {
+  border: 1px solid #d9ddd1;
+  border-radius: 10px;
+  padding: 16px;
+  margin: 20px 0;
+}
+.packet-choices legend {
+  font-weight: 650;
+  padding: 0 6px;
+}
+.packet-choices .confirm-label {
+  align-items: flex-start;
+}
+.packet-preview {
+  padding: 14px;
+  border-radius: 8px;
+  background: #edf2e8;
+  margin: 20px 0;
+}
+.knowledge-filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 18px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.knowledge-filters .field {
+  margin: 0;
+}
+.knowledge-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+.knowledge-card {
+  padding: 24px;
+  min-width: 0;
+}
+.knowledge-card h2 {
+  font-size: 21px;
+  margin-top: 14px;
+}
+.knowledge-card .link-button {
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.evaluation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 22px 0;
+}
+.evaluation-card {
+  padding: 24px;
+}
+.evaluation-card strong {
+  font:
+    36px/1.2 Georgia,
+    serif;
+  display: block;
+  margin: 10px 0;
+}
+.evaluation-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.evaluation-table th,
+.evaluation-table td {
+  padding: 12px 8px;
+  border-bottom: 1px solid #d9ddd1;
+  text-align: left;
+}
+.source-canvas-wrap {
+  position: relative;
+  max-width: 100%;
+  margin: 14px auto;
+}
+.source-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.source-box {
+  position: absolute;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px #936d18;
+  background: #eed07555;
+}
+.source-canvas-wrap img {
+  display: block;
+  width: 100%;
+}
+.evaluation-table-wrap {
+  overflow-x: auto;
+}
+.flow-nav {
+  flex-wrap: wrap;
+}
+html[data-reading-size='large'] .body-text,
+html[data-reading-size='large'] .page-sub,
+html[data-reading-size='large'] .source-line,
+html[data-reading-size='large'] .readiness-finding p,
+html[data-reading-size='large'] .knowledge-card p,
+html[data-reading-size='large'] .form-assist-fields label {
+  font-size: 18px;
+  line-height: 1.65;
+}
+html[data-reading-size='large'] .hint {
+  font-size: 15px;
+}
+@media (max-width: 900px) {
+  .readiness-layout,
+  .knowledge-grid {
+    grid-template-columns: 1fr;
+  }
+  .knowledge-filters {
+    grid-template-columns: 1fr;
+  }
+  .evaluation-grid {
+    grid-template-columns: 1fr;
+  }
+  .flow-nav button {
+    flex: 1 1 40%;
+    font-size: 12px;
+  }
+  .packet-choices {
+    padding: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .readiness-layout * {
+    scroll-behavior: auto;
+  }
+}
+.flow-nav {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+#toast {
+  left: 50%;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+.reading-control {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.reading-control select {
+  max-width: 150px;
+}
+@media (max-width: 700px) {
+  .flow-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .readiness-page-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .readiness-page-head > .button {
+    width: auto;
+    height: auto;
+    margin-top: 0;
+    font-size: 13px;
+    padding: 12px 16px;
+  }
+}

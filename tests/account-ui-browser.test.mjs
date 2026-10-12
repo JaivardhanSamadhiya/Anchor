@@ -123,7 +123,7 @@ function apiFixture() {
   return { record, files, calls, violations, attach, seed: restored };
 }
 
-test('actual app guide: first-visit seven stops, replay, and reload preserve the real underlying workspace', { skip: !enabled, timeout: 60_000 }, async () => {
+test('actual app guide: first-visit nine stops, replay, and reload preserve the real underlying workspace', { skip: !enabled, timeout: 60_000 }, async () => {
   const browser = await openBrowser();
   try {
     const { page, errors } = await newPage(browser);
@@ -138,14 +138,16 @@ test('actual app guide: first-visit seven stops, replay, and reload preserve the
       ['Choose how to save your progress', 'overview'],
       ['Add a notice. Check the original.', 'notices'],
       ['Prepare one step at a time', 'plan'],
+      ['Check your packet before sending', 'readiness'],
       ['Keep proof of what you send', 'evidence'],
       ['See the whole picture', 'continuity'],
+      ['Find an answer with its source', 'library'],
       ['Find a person when you need one', 'support'],
     ];
     for (let index = 0; index < stops.length; index++) {
       const [title, destination] = stops[index];
       await page.locator('#anchor-guide-title').filter({ hasText: title }).waitFor();
-      assert.equal(await page.locator('.anchor-guide-eyebrow').innerText(), `YOUR QUICK TOUR · ${index + 1} OF 7`);
+      assert.equal(await page.locator('.anchor-guide-eyebrow').innerText(), `YOUR QUICK TOUR · ${index + 1} OF ${stops.length}`);
       assert.equal(new URL(page.url()).hash, `#${destination}`);
       await page.locator('[data-guide-action="next"]').click();
     }

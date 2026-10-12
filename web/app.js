@@ -28,7 +28,7 @@ import { createConfiguredSupabaseTransport } from './supabase-transport.js';
 import { settings } from './config.js';
 import { createNextStepCue } from './next-step-cue.js';
 import {
-  getFormAssistance,
+  getFormAssistance as baseFormAssistance,
   createFormDraft,
   updateFormDraft,
   assessFormDraft,
@@ -42,6 +42,12 @@ import { DISTRICT_CONTEXT, COUNTY_SERVICES, PROGRAM_CAPABILITIES } from './distr
 import { PROGRAM_IDS, PROGRAM_KNOWLEDGE } from './program-assistant.js';
 import { getCalendarCandidates, createCalendarEvent } from './google-calendar.js';
 import { createCalendarClient } from './google-calendar-client.js';
+import { createReadinessUI, documentModel } from './readiness-ui.js';
+import { createPacketUI } from './packet-ui.js';
+import { renderKnowledgeLibrary, updateKnowledgeResults } from './knowledge-ui.js';
+import { inspectDocumentText } from './document-intelligence.js';
+import { locateSource } from './source-locations.js';
+import { localizeFormAssistance } from './spanish-form-guide.js';
 
 // Resolve assets beside this module so the same build works under /Anchor/.
 const assetURL = (path) => new URL(path.replace(/^\//, ''), import.meta.url).href;
@@ -120,7 +126,8 @@ const calendarClient = createCalendarClient({ clientId: settings.googleClientId 
 const assistant = createProgramAssistant({
   getAccount: () => accountInfo,
   getLanguage: () => state?.lang || 'en',
-  ask: (request, signal) => accountTransport.askProgram(request, signal),
+  ask: (request, signal) =>
+    accountTransport.askProgram({ ...request, jurisdiction: state.county }, signal),
   redraw: () => {
     if (page === 'assistant') render({ captureAssistant: false });
   },
@@ -134,13 +141,15 @@ const formAssistant = createFormAssistant({
   },
   getAccount: () => accountInfo,
   getLanguage: () => state?.lang || 'en',
-  ask: (request, signal) => accountTransport.askProgram(request, signal),
+  ask: (request, signal) =>
+    accountTransport.askProgram({ ...request, jurisdiction: state.county }, signal),
   redraw: redrawFormAssistant,
 });
 const PAGES = [
   'overview',
   'notices',
   'plan',
+  'readiness',
   'evidence',
   'continuity',
   'forms',
@@ -148,6 +157,8 @@ const PAGES = [
   'assistant',
   'support',
   'about',
+  'library',
+  'evaluation',
 ];
 let clarificationRenderDeferred = false;
 let pointerDown = false;
@@ -155,6 +166,8 @@ let pointerDown = false;
 let continuityCapacity = 30;
 let accountInfo = { authenticated: false, configured: false, syncState: 'guest', pendingCount: 0 };
 const t = (en, es) => (state?.lang === 'es' ? es : en);
+const getFormAssistance = (...args) =>
+  localizeFormAssistance(baseFormAssistance(...args), state?.lang || 'en');
 const uid = () => crypto.randomUUID();
 const accountUI = createAccountUI({
   getInfo: () => accountInfo,
@@ -182,11 +195,52 @@ const readFileAttachment = (id) =>
   accountInfo.authenticated && state.mode === 'personal'
     ? account.getAttachment(id)
     : getAttachment(id);
+let workspaceEpoch = 0;
+const workspaceOwner = () => `${accountInfo.user?.id || 'guest'}:${state?.mode}:${workspaceEpoch}`;
+const readinessUI = createReadinessUI({
+  t,
+  escape: e,
+  workspace: () => workspace(),
+  noticeById: (id) => noticeById(id),
+  modal,
+  showModal,
+  modalHead,
+  persist,
+  render,
+  toast,
+  language: () => state?.lang || 'en',
+  owner: workspaceOwner,
+  storeFile,
+});
+const packetUI = createPacketUI({
+  t,
+  escape: e,
+  workspace: () => workspace(),
+  documents: readinessUI.documents,
+  modal,
+  showModal,
+  modalHead,
+  toast,
+  language: () => state?.lang || 'en',
+  owner: workspaceOwner,
+  readFile: readFileAttachment,
+  download: downloadFile,
+});
+function invalidateWorkspaceTasks() {
+  workspaceEpoch++;
+  readinessUI.reset();
+  packetUI.reset();
+}
+function setWorkspaceMode(mode) {
+  invalidateWorkspaceTasks();
+  state.mode = mode;
+}
 function flowNavigation() {
   return `<div class="workspace-toolbar"><div class="workspace-toggle" role="group" aria-label="${t('Choose workspace', 'Elegir espacio')}"><button data-action="workspace-personal" aria-pressed="${state.mode === 'personal'}">${t('My workspace', 'Mi espacio')}</button><button data-action="workspace-demo" aria-pressed="${state.mode === 'demo'}">${t('Practice', 'Práctica')}</button></div><button class="guide-button" data-action="guide">${icon('help', 15)}${t('Show me how', 'Mostrarme cómo')}</button></div><nav class="flow-nav" aria-label="${t('Your next steps', 'Tus siguientes pasos')}">${[
     ['notices', t('Add & review', 'Agregar y revisar')],
     ['plan', t('Prepare', 'Preparar')],
-    ['evidence', t('Save receipts', 'Guardar recibos')],
+    ['readiness', t('Check packet', 'Revisar paquete')],
+    ['evidence', t('Submit & track', 'Enviar y registrar')],
   ]
     .map(
       ([p, title], i) =>
@@ -431,18 +485,22 @@ function shell(content) {
     overview: t('Home', 'Inicio'),
     notices: t('1. Add & review', '1. Agregar y revisar'),
     plan: t('2. Prepare', '2. Preparar'),
-    evidence: t('3. Save receipts', '3. Guardar recibos'),
+    readiness: t('3. Check packet', '3. Revisar paquete'),
+    evidence: t('4. Submit & track', '4. Enviar y registrar'),
     continuity: t('Continuity', 'Continuidad'),
     forms: t('Guided forms', 'Formularios guiados'),
     calendar: t('Calendar', 'Calendario'),
     assistant: t('Ask Anchor', 'Pregunta a Anchor'),
     support: t('Get support', 'Obtener ayuda'),
     about: t('About Anchor', 'Acerca de Anchor'),
+    library: t('Source library', 'Biblioteca de fuentes'),
+    evaluation: t('How we test', 'Cómo probamos'),
   };
   return `<div class="shell ${navOpen ? 'nav-open' : ''}"><button class="nav-overlay" data-action="menu" aria-label="${t('Close navigation', 'Cerrar navegaci\xF3n')}"></button><aside class="sidebar"><a class="brand" href="#overview" data-action="nav" data-page="overview"><img src="./icon.svg" alt="">Anchor</a><div class="brand-sub">${t('A little clarity goes a long way', 'Claridad para seguir adelante')}</div><div class="nav-label">${t('YOUR WORKSPACE', 'TU ESPACIO')}</div><nav class="nav" aria-label="${t('Main navigation', 'Navegaci\xF3n principal')}">${[
     ['overview', 'grid'],
     ['notices', 'file'],
     ['plan', 'list'],
+    ['readiness', 'shield'],
     ['evidence', 'folder'],
     ['continuity', 'shield'],
     ['forms', 'file'],
@@ -457,6 +515,8 @@ function shell(content) {
     )}<div class="nav-label" style="margin-top:26px">${t('HERE TO HELP', 'AQU\xCD PARA AYUDAR')}</div>${[
     ['support', 'heart'],
     ['assistant', 'spark'],
+    ['library', 'folder'],
+    ['evaluation', 'check'],
     ['about', 'info'],
   ]
     .map(
@@ -871,17 +931,17 @@ function updateNextStep() {
       };
     else if (requests().length && completed() === requests().length)
       cue = {
-        key: `receipt:${accountInfo.user?.id || 'guest'}:${state.mode}:${workspace()
+        key: `readiness:${accountInfo.user?.id || 'guest'}:${state.mode}:${workspace()
           .notices.map((item) => item.id)
           .join(':')}`,
-        selector: '[data-action="receipt"]',
+        selector: '[data-action="nav"][data-page="readiness"]',
         title: t(
-          'After you submit, save your confirmation.',
-          'Después de enviar, guarda la confirmación.',
+          'Next: take a second look at your packet.',
+          'Siguiente: revisa otra vez tu paquete.',
         ),
         detail: t(
-          'Use the official channel, then record what you actually sent.',
-          'Usa el canal oficial y registra lo que enviaste.',
+          'Check the proof and reporting period before using the official submission channel.',
+          'Verifica los comprobantes y período antes de usar el canal oficial de entrega.',
         ),
       };
   } else if (page === 'overview' && workspace().notices.length && !pending)
@@ -992,7 +1052,7 @@ function review() {
       )
       .join(
         '',
-      )}</div></div><div class="source-bottom">${icon('lock', 11)} ${t('Original wording is preserved. If OCR missed something, use the original file to check it.', 'Se conserva el texto original. Si el reconocimiento omiti\xF3 algo, consulta el archivo original.')}${n.originalAttachmentId ? ` <button class="link-button" data-action="attachment" data-attachment="${e(n.originalAttachmentId)}">${t('Download original file', 'Descargar archivo original')}</button>` : ''}</div></section><div class="review-stack">${!n.supported ? `<div class="review-warning">${icon('warning', 18)}<div><strong>${t('This notice needs a person\u2019s review.', 'Este aviso requiere revisi\xF3n humana.')}</strong><p>${t('Anchor could not confidently recognize a supported CalFresh notice. Take the original to your county or a trusted navigator.', 'Anchor no reconoci\xF3 un aviso de CalFresh compatible. Lleva el original al condado o a un asesor.')}</p></div></div>` : ''}<section class="panel review-card"><div class="eyebrow">${t('01 \xB7 DATES, KEPT DISTINCT', '01 \xB7 FECHAS POR SEPARADO')}</div><h2>${t('What\u2019s coming up', 'Lo que viene')}</h2><p>${t('A submission date and the end of benefits are different. Check each one in the letter.', 'La fecha de env\xEDo y el fin de beneficios son distintos. Verifica cada fecha en el aviso.')}</p>${n.deadlines.length ? n.deadlines.map((d) => `<div class="fact"><div class="fact-head"><span class="fact-title">${label(d)}</span><span class="tag ${d.excluded ? 'gray' : d.confirmed ? 'green' : 'amber'}">${d.excluded ? t('Does not apply', 'No corresponde') : d.confirmed ? t('Checked', 'Verificada') : d.needsReview ? t('Needs clarification', 'Requiere aclaraci\xF3n') : t('Check original', 'Verificar original')}</span></div><div class="fact-date">${d.date ? fmt(d.date) : e(d.raw)}</div><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${d.line}">${icon('link', 11)}${t('Show in the letter', 'Mostrar en el aviso')}</button><blockquote>${e(d.quote)}</blockquote><button class="link-button" data-action="edit-date" data-id="${e(n.id)}" data-date="${e(d.id)}">${t('Correct this date', 'Corregir esta fecha')}</button>${d.needsReview || d.editing ? `<label class="hint" for="date-${e(d.id)}">${t('Enter the date you verified in the original or with the county.', 'Ingresa la fecha que verificaste en el original o con el condado.')}</label><div><input class="date-input" id="date-${e(d.id)}" type="date" data-notice="${e(n.id)}" data-date="${e(d.id)}" value="${e(d.date || '')}" aria-label="${e(label(d))}"></div>` : ''}<label class="confirm-label"><input type="checkbox" data-confirm="${e(d.id)}" data-notice="${e(n.id)}" ${d.confirmed ? 'checked' : ''} ${!d.date ? 'disabled' : ''}>${d.needsReview ? t('I confirmed this date and resolved the ambiguity.', 'Confirm\xE9 esta fecha y aclar\xE9 la ambig\xFCedad.') : t('I checked this date against the original notice.', 'Verifiqu\xE9 esta fecha en el aviso original.')}</label>${competing ? `<label class="confirm-label"><input type="checkbox" data-exclude="${e(d.id)}" data-notice="${e(n.id)}" ${d.excluded ? 'checked' : ''}>${t('This date does not apply, after clarification.', 'Esta fecha no corresponde, despu\xE9s de aclararlo.')}</label>` : ''}${d.userEntered ? `<p class="hint">${t('Date corrected by you; original wording is preserved above.', 'Fecha corregida por ti; se conserva el texto original arriba.')}</p>` : ''}</div>`).join('') : `<p class="hint">${t('No explicit, readable dates were identified. Ask your county to clarify any timing.', 'No se identificaron fechas expl\xEDcitas y legibles. Consulta el plazo con el condado.')}</p>`}${competing ? `<div class="review-warning gap-top">${icon('warning', 16)}<div><strong>${t('Competing dates need clarification.', 'Las fechas contradictorias requieren aclaraci\xF3n.')}</strong><p>${t('Keep both original dates visible. Ask the county which applies, then record the clarification before using or exporting the plan.', 'Conserva ambas fechas originales. Consulta al condado cu\xE1l corresponde y registra la aclaraci\xF3n antes de usar o exportar el plan.')}</p></div></div><label class="hint" for="clarification">${t('What did you clarify, and how?', '\xBFQu\xE9 aclaraste y c\xF3mo?')}</label><textarea id="clarification" class="clarify-text" data-clarify="${e(n.id)}" maxlength="2000" placeholder="${t('e.g. County worker clarified the applicable date on\u2026', 'p. ej. El trabajador del condado aclar\xF3 la fecha el\u2026')}">${e(n.clarification || '')}</textarea>` : ''}</section><section class="panel review-card"><div class="eyebrow">${t('02 \xB7 WHAT THE LETTER ASKS', '02 \xB7 LO QUE PIDE EL AVISO')}</div><h2>${t('Your next steps', 'Tus siguientes pasos')}</h2>${n.requests.length ? n.requests.map((r) => `<div class="request-item">${icon(r.kind === 'document' ? 'folder' : r.kind === 'interview' ? 'phone' : 'file', 17)}<div><strong>${e(r.title)}</strong><p>${e(r.description)}</p><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${r.line}">${t('Check the source', 'Verificar el original')}${icon('link', 11)}</button><div class="task-assist-actions"><button class="button light small" data-action="form-open" data-id="${e(n.id)}" data-task="${e(r.id)}">${t('Prepare with a guide', 'Preparar con una guía')}${icon('arrow', 12)}</button></div></div></div>`).join('') : `<p class="hint">${t('No definite requests could be read. Unmarked checkboxes are not counted as requests.', 'No se pudieron leer solicitudes claras. Las casillas sin marcar no se cuentan como solicitudes.')}</p><button class="button light small" data-action="form-open" data-id="${e(n.id)}">${t('Prepare with a guide', 'Preparar con una guía')}</button>`}${n.warnings.length ? `<div class="review-warning gap-top">${icon('eye', 17)}<div><strong>${t('A little more attention needed', 'Se necesita un poco m\xE1s de atenci\xF3n')}</strong><ul class="warning-list">${n.warnings.map((w) => `<li>${e(w)}</li>`).join('')}</ul></div></div>` : ''}<div class="review-actions"><button class="button" data-action="confirm-plan" data-id="${e(n.id)}" ${!n.supported || !datesOK ? 'disabled' : ''}>${icon('check', 14)}${t('Use this action plan', 'Usar este plan')}</button><button class="button light" data-action="nav" data-page="support">${t('Ask for help', 'Pedir ayuda')}</button></div><p class="hint">${t('Confirm each date above before using the plan. Reviewing a plan does not submit anything to the county.', 'Verifica cada fecha antes de usar el plan. Revisarlo no env\xEDa nada al condado.')}</p></section></div></div>`
+      )}</div></div><div class="source-bottom">${icon('lock', 11)} ${t('Original wording is preserved. If OCR missed something, use the original file to check it.', 'Se conserva el texto original. Si el reconocimiento omiti\xF3 algo, consulta el archivo original.')}${n.originalAttachmentId ? ` <button class="link-button" data-action="source-image" data-id="${e(n.id)}" data-line="${highlightLine || 1}">${t('View original area', 'Ver zona original')}</button><button class="link-button" data-action="attachment" data-attachment="${e(n.originalAttachmentId)}">${t('Download original file', 'Descargar archivo original')}</button>` : ''}</div></section><div class="review-stack">${!n.supported ? `<div class="review-warning">${icon('warning', 18)}<div><strong>${t('This notice needs a person\u2019s review.', 'Este aviso requiere revisi\xF3n humana.')}</strong><p>${t('Anchor could not confidently recognize a supported CalFresh notice. Take the original to your county or a trusted navigator.', 'Anchor no reconoci\xF3 un aviso de CalFresh compatible. Lleva el original al condado o a un asesor.')}</p></div></div>` : ''}<section class="panel review-card"><div class="eyebrow">${t('01 \xB7 DATES, KEPT DISTINCT', '01 \xB7 FECHAS POR SEPARADO')}</div><h2>${t('What\u2019s coming up', 'Lo que viene')}</h2><p>${t('A submission date and the end of benefits are different. Check each one in the letter.', 'La fecha de env\xEDo y el fin de beneficios son distintos. Verifica cada fecha en el aviso.')}</p>${n.deadlines.length ? n.deadlines.map((d) => `<div class="fact"><div class="fact-head"><span class="fact-title">${label(d)}</span><span class="tag ${d.excluded ? 'gray' : d.confirmed ? 'green' : 'amber'}">${d.excluded ? t('Does not apply', 'No corresponde') : d.confirmed ? t('Checked', 'Verificada') : d.needsReview ? t('Needs clarification', 'Requiere aclaraci\xF3n') : t('Check original', 'Verificar original')}</span></div><div class="fact-date">${d.date ? fmt(d.date) : e(d.raw)}</div><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${d.line}">${icon('link', 11)}${t('Show in the letter', 'Mostrar en el aviso')}</button><blockquote>${e(d.quote)}</blockquote><button class="link-button" data-action="edit-date" data-id="${e(n.id)}" data-date="${e(d.id)}">${t('Correct this date', 'Corregir esta fecha')}</button>${d.needsReview || d.editing ? `<label class="hint" for="date-${e(d.id)}">${t('Enter the date you verified in the original or with the county.', 'Ingresa la fecha que verificaste en el original o con el condado.')}</label><div><input class="date-input" id="date-${e(d.id)}" type="date" data-notice="${e(n.id)}" data-date="${e(d.id)}" value="${e(d.date || '')}" aria-label="${e(label(d))}"></div>` : ''}<label class="confirm-label"><input type="checkbox" data-confirm="${e(d.id)}" data-notice="${e(n.id)}" ${d.confirmed ? 'checked' : ''} ${!d.date ? 'disabled' : ''}>${d.needsReview ? t('I confirmed this date and resolved the ambiguity.', 'Confirm\xE9 esta fecha y aclar\xE9 la ambig\xFCedad.') : t('I checked this date against the original notice.', 'Verifiqu\xE9 esta fecha en el aviso original.')}</label>${competing ? `<label class="confirm-label"><input type="checkbox" data-exclude="${e(d.id)}" data-notice="${e(n.id)}" ${d.excluded ? 'checked' : ''}>${t('This date does not apply, after clarification.', 'Esta fecha no corresponde, despu\xE9s de aclararlo.')}</label>` : ''}${d.userEntered ? `<p class="hint">${t('Date corrected by you; original wording is preserved above.', 'Fecha corregida por ti; se conserva el texto original arriba.')}</p>` : ''}</div>`).join('') : `<p class="hint">${t('No explicit, readable dates were identified. Ask your county to clarify any timing.', 'No se identificaron fechas expl\xEDcitas y legibles. Consulta el plazo con el condado.')}</p>`}${competing ? `<div class="review-warning gap-top">${icon('warning', 16)}<div><strong>${t('Competing dates need clarification.', 'Las fechas contradictorias requieren aclaraci\xF3n.')}</strong><p>${t('Keep both original dates visible. Ask the county which applies, then record the clarification before using or exporting the plan.', 'Conserva ambas fechas originales. Consulta al condado cu\xE1l corresponde y registra la aclaraci\xF3n antes de usar o exportar el plan.')}</p></div></div><label class="hint" for="clarification">${t('What did you clarify, and how?', '\xBFQu\xE9 aclaraste y c\xF3mo?')}</label><textarea id="clarification" class="clarify-text" data-clarify="${e(n.id)}" maxlength="2000" placeholder="${t('e.g. County worker clarified the applicable date on\u2026', 'p. ej. El trabajador del condado aclar\xF3 la fecha el\u2026')}">${e(n.clarification || '')}</textarea>` : ''}</section><section class="panel review-card"><div class="eyebrow">${t('02 \xB7 WHAT THE LETTER ASKS', '02 \xB7 LO QUE PIDE EL AVISO')}</div><h2>${t('Your next steps', 'Tus siguientes pasos')}</h2>${n.requests.length ? n.requests.map((r) => `<div class="request-item">${icon(r.kind === 'document' ? 'folder' : r.kind === 'interview' ? 'phone' : 'file', 17)}<div><strong>${e(r.title)}</strong><p>${e(r.description)}</p><button class="link-button" data-action="source" data-id="${e(n.id)}" data-line="${r.line}">${t('Check the source', 'Verificar el original')}${icon('link', 11)}</button><div class="task-assist-actions"><button class="button light small" data-action="form-open" data-id="${e(n.id)}" data-task="${e(r.id)}">${t('Prepare with a guide', 'Preparar con una guía')}${icon('arrow', 12)}</button></div></div></div>`).join('') : `<p class="hint">${t('No definite requests could be read. Unmarked checkboxes are not counted as requests.', 'No se pudieron leer solicitudes claras. Las casillas sin marcar no se cuentan como solicitudes.')}</p><button class="button light small" data-action="form-open" data-id="${e(n.id)}">${t('Prepare with a guide', 'Preparar con una guía')}</button>`}${n.warnings.length ? `<div class="review-warning gap-top">${icon('eye', 17)}<div><strong>${t('A little more attention needed', 'Se necesita un poco m\xE1s de atenci\xF3n')}</strong><ul class="warning-list">${n.warnings.map((w) => `<li>${e(w)}</li>`).join('')}</ul></div></div>` : ''}<div class="review-actions"><button class="button" data-action="confirm-plan" data-id="${e(n.id)}" ${!n.supported || !datesOK ? 'disabled' : ''}>${icon('check', 14)}${t('Use this action plan', 'Usar este plan')}</button><button class="button light" data-action="nav" data-page="support">${t('Ask for help', 'Pedir ayuda')}</button></div><p class="hint">${t('Confirm each date above before using the plan. Reviewing a plan does not submit anything to the county.', 'Verifica cada fecha antes de usar el plan. Revisarlo no env\xEDa nada al condado.')}</p></section></div></div>`
   );
 }
 function actionPlan() {
@@ -1033,7 +1093,7 @@ function actionPlan() {
           `<div class="conflict-card">${icon('warning', 19)}<div><h3>${e(c.title)}</h3><p>${e(c.description)}</p><button class="link-button" data-action="review" data-id="${e(c.noticeIds?.[0] || ns[0].id)}">${t('Compare with the original', 'Comparar con el original')}${icon('arrow', 12)}</button></div></div>`,
       )
       .join('') +
-    `<div class="document-layout"><section class="panel tasks-panel"><div class="panel-head"><h2>${t('Your preparation checklist', 'Tu lista de preparaci\xF3n')}</h2><span class="tag green">${done}/${all.length} ${t('prepared', 'preparados')}</span></div><div class="panel-body"><div class="progress-info"><span>${t('Small steps add up.', 'Los peque\xF1os pasos cuentan.')}</span><span>${progress()}%</span></div><div class="task-progress"><span style="width:${progress()}%"></span></div>${all.map(taskLine).join('')}${!all.length ? `<p class="hint">${t('Open the notice and ask a navigator to help identify its requests.', 'Abre el aviso y pide ayuda para identificar sus solicitudes.')}</p>` : ''}<div class="review-warning gap-top">${icon('info', 16)}<span>${t('A checkmark means you prepared the item. Keep a submission record separately; the county determines whether it is accepted.', 'Una marca indica que preparaste el documento. Guarda un registro de env\xEDo por separado; el condado decide si lo acepta.')}</span></div><div class="button-row gap-top"><button class="button" data-action="receipt">${icon('plus', 13)}${t('Record a submission', 'Registrar un env\xEDo')}</button><button class="button light" data-action="nav" data-page="calendar">${icon('calendar', 14)}${t('Google Calendar', 'Google Calendar')}</button><button class="button light" data-action="calendar-all">${icon('calendar', 14)}${t('Export checked dates', 'Exportar fechas verificadas')}</button></div></div></section><aside class="panel stepper"><h3>${t('From letter to follow-through', 'Del aviso al seguimiento')}</h3>${[
+    `<div class="document-layout"><section class="panel tasks-panel"><div class="panel-head"><h2>${t('Your preparation checklist', 'Tu lista de preparaci\xF3n')}</h2><span class="tag green">${done}/${all.length} ${t('prepared', 'preparados')}</span></div><div class="panel-body"><div class="progress-info"><span>${t('Small steps add up.', 'Los peque\xF1os pasos cuentan.')}</span><span>${progress()}%</span></div><div class="task-progress"><span style="width:${progress()}%"></span></div>${all.map(taskLine).join('')}${!all.length ? `<p class="hint">${t('Open the notice and ask a navigator to help identify its requests.', 'Abre el aviso y pide ayuda para identificar sus solicitudes.')}</p>` : ''}<div class="review-warning gap-top">${icon('info', 16)}<span>${t('A checkmark means you prepared the item. Keep a submission record separately; the county determines whether it is accepted.', 'Una marca indica que preparaste el documento. Guarda un registro de env\xEDo por separado; el condado decide si lo acepta.')}</span></div><div class="button-row gap-top"><button class="button" data-action="nav" data-page="readiness">${icon('eye', 13)}${t('Check my packet', 'Revisar mi paquete')}</button><button class="button light" data-action="receipt">${icon('plus', 13)}${t('Record a submission', 'Registrar un env\xEDo')}</button><button class="button light" data-action="nav" data-page="calendar">${icon('calendar', 14)}${t('Google Calendar', 'Google Calendar')}</button><button class="button light" data-action="calendar-all">${icon('calendar', 14)}${t('Export checked dates', 'Exportar fechas verificadas')}</button></div></div></section><aside class="panel stepper"><h3>${t('From letter to follow-through', 'Del aviso al seguimiento')}</h3>${[
       [
         t('Understand the letter', 'Entender el aviso'),
         t('Check the exact dates and requests.', 'Verifica las fechas y solicitudes.'),
@@ -1114,6 +1174,184 @@ function support() {
     `<label class="select-wrap">${t('Show resources for', 'Mostrar recursos de')}<select id="county"><option value="santa-clara" ${state.county === 'santa-clara' ? 'selected' : ''}>Santa Clara County</option><option value="san-mateo" ${state.county === 'san-mateo' ? 'selected' : ''}>San Mateo County</option></select></label><div class="support-grid"><section class="panel support-card">${icon('phone', 28)}<h2>${t('Start with your county.', 'Empieza por tu condado.')}</h2><p>${t('If your letter lists a worker\u2019s number, start there. Otherwise, these official contact details can help.', 'Si tu aviso incluye el tel\xE9fono de un trabajador, empieza all\xED. Estos datos oficiales tambi\xE9n pueden ayudarte.')}</p><div class="contact-detail"><span>${e(c.name)}</span><a href="${e(c.phoneHref)}">${e(c.phone)}</a></div><p class="hint">${e(c.agency)}</p>${ext(c.helpUrl, t('County contact options', 'Opciones de contacto'))} ${ext(c.officeLocationsUrl, t('Office locations & document options', 'Oficinas y opciones de documentos'))}<p class="hint">${t('You can ask for language assistance or an accommodation. Confirm office availability before traveling.', 'Puedes solicitar ayuda con el idioma o una adaptaci\xF3n. Verifica la disponibilidad antes de viajar.')}</p></section><section class="panel support-card">${icon('globe', 28)}<h2>${t('Use the official channel.', 'Usa el canal oficial.')}</h2><p>${t('BenefitsCal is the official portal for applying, renewing, and managing supported California benefits. Sign in there to submit or check your case.', 'BenefitsCal es el portal oficial para solicitar, renovar y administrar beneficios compatibles de California. Inicia sesi\xF3n all\xED para enviar documentos o revisar tu caso.')}</p>${ext(c.applyUrl, t('Open BenefitsCal', 'Abrir BenefitsCal'), 'button')}<div class="source-info gap-top">${t('Need help explaining the situation? Download a summary of your notices, checked dates, outstanding requests, and submission records.', '\xBFNecesitas explicar la situaci\xF3n? Descarga un resumen de avisos, fechas verificadas, solicitudes pendientes y registros de env\xEDo.')}</div><button class="button light full-width gap-top" data-action="handoff">${icon('download', 14)}${t('Create a navigator handoff', 'Crear un resumen para un asesor')}</button></section></div><section class="panel sources-panel"><h2>${t('Clear steps start with reliable sources.', 'Los pasos claros empiezan con fuentes confiables.')}</h2><p class="body-text" style="margin-bottom:15px">${t('Official resources behind this prototype. Your own notice remains the source for your case-specific requests.', 'Recursos oficiales de este prototipo. Tu propio aviso sigue siendo la fuente de las solicitudes de tu caso.')}</p>${SOURCES.map((s) => `<div class="source-resource">${icon('link', 15)}<div><strong>${e(s.title)}</strong><p>${e(s.description)}</p><a href="${e(s.url)}" target="_blank" rel="noopener noreferrer">${t('View official source', 'Ver fuente oficial')}${icon('external', 10)}</a><small>${t('Checked', 'Consultado')} ${e(s.checkedAt)}</small></div></div>`).join('')}</section>`
   );
 }
+let evaluationResult = null,
+  evaluationLoading = false,
+  evaluationError = '';
+async function loadEvaluation() {
+  if (evaluationResult || evaluationLoading || evaluationError) return;
+  evaluationLoading = true;
+  try {
+    const response = await fetch(assetURL('models/evaluation.json'));
+    if (!response.ok)
+      throw new Error(
+        t(
+          'Evaluation report is unavailable offline. Reconnect to load it.',
+          'El informe no está disponible sin conexión. Conéctate para cargarlo.',
+        ),
+      );
+    evaluationResult = await response.json();
+  } catch (error) {
+    evaluationError = error.message;
+  } finally {
+    evaluationLoading = false;
+    if (page === 'evaluation') render();
+  }
+}
+function evaluationPage() {
+  const metrics = evaluationResult
+    ? `<div class="evaluation-grid">${[
+        [
+          t('Held-out fictional excerpts', 'Ejemplos ficticios de prueba'),
+          `${evaluationResult.correct}/${evaluationResult.testExamples}`,
+        ],
+        [
+          t('Sparse or unfamiliar challenges rejected', 'Retos escasos o desconocidos rechazados'),
+          `${evaluationResult.correctAbstentions}/${evaluationResult.abstentionExamples}`,
+        ],
+        [
+          t(
+            'Keyword baseline, same fictional excerpts',
+            'Referencia de palabras clave, mismos ejemplos',
+          ),
+          `${evaluationResult.baseline?.correct ?? '—'}/${evaluationResult.testExamples}`,
+        ],
+      ]
+        .map(
+          ([label, value]) =>
+            `<div class="evaluation-card"><p>${label}</p><strong>${e(value)}</strong></div>`,
+        )
+        .join(
+          '',
+        )}</div><p class="hint">${t('Both methods perform equally on these short synthetic fixtures. These results do not demonstrate an ML advantage or accuracy on real documents.', 'Ambos métodos rinden igual en estos ejemplos sintéticos breves. Estos resultados no demuestran una ventaja del modelo ni precisión en documentos reales.')}</p>`
+    : '';
+  return (
+    head(
+      t('Useful. Measurable.<br>Open to inspection.', 'Útil. Medible.<br>Abierto a revisión.'),
+      t(
+        'See the limits, reproduce the checks, and try a fictional case.',
+        'Consulta los límites, reproduce las pruebas y explora un caso ficticio.',
+      ),
+      t('HOW ANCHOR IS TESTED', 'CÓMO SE PRUEBA ANCHOR'),
+      false,
+    ) +
+    `<section class="panel evaluation-card"><h2>${t('A case you can try', 'Un caso que puedes probar')}</h2><p class="body-text">${t('A notice asks for September income proof. The practice paystub covers August. Check its facts, find the mismatch, prepare the requested form, and choose an appointment packet.', 'Un aviso pide comprobantes de ingresos de septiembre. El talón de práctica corresponde a agosto. Verifica los datos, encuentra la diferencia, prepara el formulario solicitado y elige un paquete para la cita.')}</p><button class="button" data-action="readiness-demo">${t('Try the complete fictional case', 'Probar el caso ficticio completo')}</button></section><div class="evaluation-grid"><section class="panel evaluation-card"><h2>${t('Local document model', 'Modelo local de documentos')}</h2><p>${t('A trained linear classifier ranks document kinds. Explicit source-backed rules locate periods and amounts. Model scores are not calibrated probabilities.', 'Un clasificador lineal entrenado ordena los tipos de documento. Reglas explícitas localizan períodos e importes. Los puntajes no son probabilidades calibradas.')}</p></section><section class="panel evaluation-card"><h2>${t('Resident confirmation', 'Verificación del residente')}</h2><p>${t('Classification and OCR do not confirm a person, reporting period, checked box or agency decision. Uncertain evidence remains visible.', 'La clasificación y OCR no confirman personas, períodos, casillas ni decisiones de la agencia. Los datos inciertos siguen visibles.')}</p></section><section class="panel evaluation-card"><h2>${t('Actual user impact', 'Impacto real en usuarios')}</h2><p>${t('A resident usability study has not been completed. The study protocol uses fictional records and measures task completion, errors and time. No household outcomes are claimed.', 'Todavía no se ha realizado un estudio con residentes. El protocolo usa datos ficticios y mide tareas completadas, errores y tiempo. No se afirman resultados sobre hogares.')}</p></section></div><section class="panel evaluation-card"><h2>${t('Reproducible fictional benchmark', 'Evaluación ficticia reproducible')}</h2><p class="body-text">${t('The training excerpts and held-out test excerpts are fictional and limited in scope. Passing this benchmark does not establish accuracy on real county letters or paystubs.', 'Los ejemplos de entrenamiento y prueba son ficticios y de alcance limitado. Esta evaluación no establece precisión en avisos o talones reales.')}</p>${metrics}${evaluationResult ? `<details><summary>${t('Inspect the full measured report', 'Consultar el informe medido completo')}</summary><pre class="evidence-text">${e(JSON.stringify(evaluationResult, null, 2))}</pre></details><a class="link-button" href="./models/evaluation.json" download>${t('Download measured results', 'Descargar resultados medidos')}</a>` : `<p role="status">${e(evaluationError || t('Loading report…', 'Cargando informe…'))}</p>`}<p class="hint">${t('Reproduce the model and evaluation with the documented Python scripts. CI also checks the browser journey, PDF fields, storage permissions and source integrity.', 'Reproduce el modelo y evaluación con los scripts Python documentados. CI también verifica el recorrido, campos PDF, permisos de almacenamiento e integridad de fuentes.')}</p><div class="button-row"><a class="button light" href="https://github.com/JaivardhanSamadhiya/Anchor/blob/main/docs/DOCUMENT_INTELLIGENCE.md" target="_blank" rel="noopener noreferrer">${t('Evaluation method', 'Método de evaluación')} ↗</a><a class="button light" href="https://github.com/JaivardhanSamadhiya/Anchor/blob/main/docs/USABILITY_STUDY.md" target="_blank" rel="noopener noreferrer">${t('Study protocol', 'Protocolo del estudio')} ↗</a></div></section>`
+  );
+}
+
+async function readinessDemo() {
+  setWorkspaceMode('demo');
+  const owner = workspaceOwner();
+  const model = await documentModel();
+  if (owner !== workspaceOwner()) return;
+  const spanish = state.lang === 'es';
+  const id = spanish ? 'demo-readiness-es' : 'demo-readiness';
+  let notice = noticeById(id);
+  if (!notice) {
+    const text = spanish
+      ? 'AVISO FICTICIO DE PRÁCTICA\nCalFresh CF 377.6\nCondado de Santa Clara\nFecha del aviso: 9 de octubre de 2026\nFecha límite: 22 de octubre de 2026\nDocumentos solicitados:\n[X] Comprobantes de ingresos de septiembre de 2026\n[X] Formulario SAR 7\nTodos los datos son ficticios.'
+      : 'FICTIONAL PRACTICE NOTICE\nCalFresh CF 377.6\nSanta Clara County\nNotice date: October 9, 2026\nDue date: October 22, 2026\nRequested documents:\n[X] Pay stubs for September 2026\n[X] SAR 7 form\nAll records are fictional.';
+    notice = analyzeNotice(text, {
+      id,
+      filename: spanish ? 'aviso-ficticio-septiembre.txt' : 'fictional-september-notice.txt',
+      isDemo: true,
+    });
+    const proof = spanish
+      ? 'COMPROBANTE FICTICIO\nTalón de pago\nEmpleado: RESIDENTE FICTICIO\nMes del informe: agosto de 2026\nIngresos brutos: $1,200.00\nIngresos netos: $980.00\nTodos los datos son ficticios.'
+      : 'FICTIONAL EARNINGS STATEMENT\nPaystub\nEmployee: FICTIONAL RESIDENT\nReporting month: August 2026\nGross income: $1,200.00\nNet income: $980.00\nAll records are fictional.';
+    const file = new File(
+      [proof],
+      spanish ? 'talon-ficticio-agosto.txt' : 'fictional-august-paystub.txt',
+      { type: 'text/plain' },
+    );
+    const attachmentId = await saveAttachment(file);
+    if (owner !== workspaceOwner()) return;
+    notice.insight = inspectDocumentText(text, model);
+    notice.evidenceDocuments = [
+      {
+        id: `${id}-paystub`,
+        name: file.name,
+        attachmentId,
+        text: proof,
+        insight: inspectDocumentText(proof, model),
+        confirmation: { checked: false },
+      },
+    ];
+    workspace().notices.unshift(notice);
+    await persist();
+  }
+  navigate('readiness');
+  toast(
+    t(
+      'Fictional case added to Practice. Your personal workspace stays separate.',
+      'Caso ficticio agregado a Práctica. Tu espacio personal sigue separado.',
+    ),
+  );
+}
+
+async function originalArea(noticeId, line) {
+  const notice = noticeById(noticeId);
+  if (!notice?.originalAttachmentId) return;
+  const owner = workspaceOwner();
+  const quote = notice.sourceText.split(/\r\n|\n|\r/)[Math.max(0, line - 1)] || '';
+  const match = locateSource(notice.layout || [], quote);
+  const pageNumber = match?.page || 1;
+  showModal(
+    modalHead(t('Check the original page', 'Verifica la página original'), e(notice.filename)) +
+      `<div class="modal-body"><p id="original-area-status" role="status">${t('Opening your original locally…', 'Abriendo el original localmente…')}</p><blockquote>${e(quote)}</blockquote><div class="source-canvas-wrap"><canvas id="original-area-canvas" aria-label="${e(t('Original notice page', 'Página del aviso original'))}"></canvas><div id="original-area-boxes"></div></div><p class="hint">${t('Highlighting locates matching words. Compare the date, wording and checkbox yourself. Download the original to inspect other pages.', 'El resaltado localiza palabras coincidentes. Verifica la fecha, texto y casilla. Descarga el original para revisar otras páginas.')}</p><button class="button light" data-action="attachment" data-attachment="${e(notice.originalAttachmentId)}">${t('Download original file', 'Descargar archivo original')}</button></div>`,
+    true,
+  );
+  const canvas = $('#original-area-canvas'),
+    status = $('#original-area-status');
+  try {
+    const file = await readFileAttachment(notice.originalAttachmentId);
+    if (owner !== workspaceOwner() || !canvas.isConnected) return;
+    if (!file?.blob)
+      throw new Error(
+        t(
+          'Original file is unavailable on this device.',
+          'El archivo original no está disponible aquí.',
+        ),
+      );
+    const bytes = new Uint8Array(await file.blob.arrayBuffer());
+    if (notice.importKind === 'pdf') {
+      const reader = await import('./form-documents.js');
+      await reader.renderFormPage(bytes, canvas, pageNumber);
+    } else if (notice.importKind === 'image') {
+      const bitmap = await createImageBitmap(file.blob);
+      const scale = Math.min(1, 1200 / bitmap.width);
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+    } else {
+      canvas.hidden = true;
+      status.textContent = t(
+        'This original is a text file. Its wording is preserved in the notice view.',
+        'El original es texto. Sus palabras se conservan en la vista del aviso.',
+      );
+      return;
+    }
+    if (owner !== workspaceOwner() || !canvas.isConnected) return;
+    $('#original-area-boxes').innerHTML = (match?.boxes || [])
+      .map(
+        (box) =>
+          `<span class="source-box" style="left:${box.x * 100}%;top:${box.y * 100}%;width:${Math.min(box.w, 1 - box.x) * 100}%;height:${Math.min(box.h, 1 - box.y) * 100}%"></span>`,
+      )
+      .join('');
+    status.textContent = match
+      ? t(
+          `Page ${pageNumber} · exact matching wording highlighted`,
+          `Página ${pageNumber} · texto coincidente resaltado`,
+        )
+      : t(
+          `Page ${pageNumber} · no exact coordinate match; check the original directly`,
+          `Página ${pageNumber} · sin coincidencia exacta; revisa el original directamente`,
+        );
+  } catch (error) {
+    if (canvas.isConnected) status.textContent = error.message;
+  }
+}
+
 function about() {
   return (
     head(
@@ -1125,7 +1363,7 @@ function about() {
       t('ABOUT ANCHOR', 'ACERCA DE ANCHOR'),
       false,
     ) +
-    `<section class="panel about-hero"><div class="eyebrow">${t('WHY ANCHOR EXISTS', 'POR QU\xC9 EXISTE ANCHOR')}</div><h2>${t('Essential support shouldn\u2019t get lost in the paperwork.', 'El apoyo esencial no deber\xEDa perderse entre papeles.')}</h2><p>${t('Anchor helps you understand a benefit letter, check its dates and requests, prepare your next steps, and preserve a record of what you send. Every extracted step has a connection to the original text.', 'Anchor te ayuda a entender un aviso de beneficios, verificar sus fechas y solicitudes, preparar los siguientes pasos y conservar un registro de lo que env\xEDas. Cada paso identificado se vincula con el texto original.')}</p></section><div class="about-grid"><section class="panel about-card">${icon('eye', 24)}<h3>${t('See where it came from.', 'Consulta de d\xF3nde proviene.')}</h3><p>${t('A date or task links to its exact line in the letter. Uncertainty stays visible until you resolve it.', 'Cada fecha o tarea se vincula a una l\xEDnea del aviso. La incertidumbre queda visible hasta que la aclares.')}</p></section><section class="panel about-card">${icon('lock', 24)}<h3>${t('Stay in control.', 'Mant\xE9n el control.')}</h3><p>${t('PDFs and images are read locally. Sign in to save letters, progress, originals, and receipts privately to your account. Guest records stay on this device.', 'Los PDFs e imágenes se leen localmente. Inicia sesión para guardar avisos, progreso, originales y recibos en tu cuenta privada. Los datos de invitado quedan aquí.')}</p></section><section class="panel about-card">${icon('heart', 24)}<h3>${t('Get a human answer.', 'Obt\xE9n una respuesta humana.')}</h3><p>${t('Make a handoff with the original wording, questions, and submission records. A county worker can help clarify what the app cannot.', 'Crea un resumen con el texto original, preguntas y registros de env\xEDo. Un trabajador del condado puede aclarar lo que la aplicaci\xF3n no puede.')}</p></section></div><section class="panel settings-list"><h2 style="font-size:18px;margin-bottom:5px">${t('Your workspace, your choice.', 'Tu espacio, tu decisi\xF3n.')}</h2><div class="setting"><div><h3>${t('Practice with fictional notices', 'Practicar con avisos ficticios')}</h3><p>${t('Explore the full workflow in a separate sample workspace. Dates in the sample use an October 9, 2026 reference clock.', 'Explora todo el proceso en un espacio de pr\xE1ctica separado. Las fechas de pr\xE1ctica usan el 9 de octubre de 2026 como referencia.')}</p></div><button class="button light small" data-action="switch-mode">${state.mode === 'demo' ? t('Go to my workspace', 'Ir a mi espacio') : t('Explore the sample', 'Explorar el ejemplo')}</button></div><div class="setting"><div><h3>${t('Take a copy with you', 'Conservar una copia')}</h3><p>${t('Download your workspace text and progress as a JSON backup. Receipt files are separate; download important originals too.', 'Descarga el texto y progreso como copia JSON. Los recibos se guardan por separado; descarga tambi\xE9n los originales importantes.')}</p></div><button class="button light small" data-action="backup">${icon('download', 13)}${t('Download backup', 'Descargar copia')}</button></div><div class="setting"><div><h3>${t('Read the processing boundaries', 'Consultar los l\xEDmites')}</h3><p>${t('This prototype recognizes English CalFresh renewal and verification correspondence. It does not determine eligibility or submit applications.', 'Este prototipo reconoce correspondencia de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s. No determina elegibilidad ni env\xEDa solicitudes.')}</p></div><button class="button light small" data-action="privacy">${t('Privacy & scope', 'Privacidad y alcance')}</button></div><div class="setting"><div><h3>${t('Remove saved information', 'Eliminar informaci\xF3n guardada')}</h3><p>${t('Reset practice, clear guest data on this device, or delete your signed-in personal workspace. Download important records first.', 'Reinicia la práctica, borra datos locales de invitado o elimina tu espacio personal con sesión iniciada. Descarga primero lo importante.')}</p></div><button class="button light small" data-action="clear-data">${icon('trash', 13)}${t('Manage saved data', 'Administrar datos')}</button></div></section>` +
+    `<section class="panel about-hero"><div class="eyebrow">${t('WHY ANCHOR EXISTS', 'POR QU\xC9 EXISTE ANCHOR')}</div><h2>${t('Essential support shouldn\u2019t get lost in the paperwork.', 'El apoyo esencial no deber\xEDa perderse entre papeles.')}</h2><p>${t('Anchor helps you understand a benefit letter, check its dates and requests, prepare your next steps, and preserve a record of what you send. Every extracted step has a connection to the original text.', 'Anchor te ayuda a entender un aviso de beneficios, verificar sus fechas y solicitudes, preparar los siguientes pasos y conservar un registro de lo que env\xEDas. Cada paso identificado se vincula con el texto original.')}</p></section><div class="about-grid"><section class="panel about-card">${icon('eye', 24)}<h3>${t('See where it came from.', 'Consulta de d\xF3nde proviene.')}</h3><p>${t('A date or task links to its exact line in the letter. Uncertainty stays visible until you resolve it.', 'Cada fecha o tarea se vincula a una l\xEDnea del aviso. La incertidumbre queda visible hasta que la aclares.')}</p></section><section class="panel about-card">${icon('lock', 24)}<h3>${t('Stay in control.', 'Mant\xE9n el control.')}</h3><p>${t('PDFs and images are read locally. Sign in to save letters, progress, originals, and receipts privately to your account. Guest records stay on this device.', 'Los PDFs e imágenes se leen localmente. Inicia sesión para guardar avisos, progreso, originales y recibos en tu cuenta privada. Los datos de invitado quedan aquí.')}</p></section><section class="panel about-card">${icon('heart', 24)}<h3>${t('Get a human answer.', 'Obt\xE9n una respuesta humana.')}</h3><p>${t('Make a handoff with the original wording, questions, and submission records. A county worker can help clarify what the app cannot.', 'Crea un resumen con el texto original, preguntas y registros de env\xEDo. Un trabajador del condado puede aclarar lo que la aplicaci\xF3n no puede.')}</p></section></div><section class="panel settings-list"><div class="setting"><div><h3>${t('Reading size', 'Tamaño de lectura')}</h3><p>${t('Choose larger guidance text on this device.', 'Elige texto de orientación más grande en este dispositivo.')}</p></div><label class="reading-control" for="reading-size">${t('Text', 'Texto')}<select id="reading-size"><option value="standard" ${document.documentElement.dataset.readingSize !== 'large' ? 'selected' : ''}>${t('Standard', 'Normal')}</option><option value="large" ${document.documentElement.dataset.readingSize === 'large' ? 'selected' : ''}>${t('Larger', 'Más grande')}</option></select></label></div><h2 style="font-size:18px;margin-bottom:5px">${t('Your workspace, your choice.', 'Tu espacio, tu decisi\xF3n.')}</h2><div class="setting"><div><h3>${t('Practice with fictional notices', 'Practicar con avisos ficticios')}</h3><p>${t('Explore the full workflow in a separate sample workspace. Dates in the sample use an October 9, 2026 reference clock.', 'Explora todo el proceso en un espacio de pr\xE1ctica separado. Las fechas de pr\xE1ctica usan el 9 de octubre de 2026 como referencia.')}</p></div><button class="button light small" data-action="switch-mode">${state.mode === 'demo' ? t('Go to my workspace', 'Ir a mi espacio') : t('Explore the sample', 'Explorar el ejemplo')}</button></div><div class="setting"><div><h3>${t('Take a copy with you', 'Conservar una copia')}</h3><p>${t('Download your workspace text and progress as a JSON backup. Receipt files are separate; download important originals too.', 'Descarga el texto y progreso como copia JSON. Los recibos se guardan por separado; descarga tambi\xE9n los originales importantes.')}</p></div><button class="button light small" data-action="backup">${icon('download', 13)}${t('Download backup', 'Descargar copia')}</button></div><div class="setting"><div><h3>${t('Read the processing boundaries', 'Consultar los l\xEDmites')}</h3><p>${t('This prototype recognizes supported English and Spanish CalFresh renewal and verification correspondence. It does not determine eligibility or submit applications.', 'Este prototipo reconoce correspondencia de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s y espa\xF1ol. No determina elegibilidad ni env\xEDa solicitudes.')}</p></div><button class="button light small" data-action="privacy">${t('Privacy & scope', 'Privacidad y alcance')}</button></div><div class="setting"><div><h3>${t('Remove saved information', 'Eliminar informaci\xF3n guardada')}</h3><p>${t('Reset practice, clear guest data on this device, or delete your signed-in personal workspace. Download important records first.', 'Reinicia la práctica, borra datos locales de invitado o elimina tu espacio personal con sesión iniciada. Descarga primero lo importante.')}</p></div><button class="button light small" data-action="clear-data">${icon('trash', 13)}${t('Manage saved data', 'Administrar datos')}</button></div></section>` +
     coveragePanel()
   );
 }
@@ -1157,28 +1395,41 @@ function render({ captureAssistant = true } = {}) {
           : noticeList()
         : page === 'plan'
           ? actionPlan()
-          : page === 'evidence'
-            ? evidence()
-            : page === 'continuity'
-              ? renderContinuity({
-                  workspace: workspace(),
-                  lang: state.lang,
-                  today: refToday(),
-                  capacityMinutes: continuityCapacity,
-                })
-              : page === 'forms'
-                ? formsPage()
-                : page === 'calendar'
-                  ? calendarPage()
-                  : page === 'assistant'
-                    ? assistant.view()
-                    : page === 'support'
-                      ? support()
-                      : about();
+          : page === 'readiness'
+            ? readinessUI.view()
+            : page === 'evidence'
+              ? evidence()
+              : page === 'continuity'
+                ? renderContinuity({
+                    workspace: workspace(),
+                    lang: state.lang,
+                    today: refToday(),
+                    capacityMinutes: continuityCapacity,
+                  })
+                : page === 'forms'
+                  ? formsPage()
+                  : page === 'calendar'
+                    ? calendarPage()
+                    : page === 'assistant'
+                      ? assistant.view()
+                      : page === 'support'
+                        ? support()
+                        : page === 'library'
+                          ? renderKnowledgeLibrary({
+                              language: state.lang,
+                              county: state.county,
+                              escape: e,
+                            })
+                          : page === 'evaluation'
+                            ? evaluationPage()
+                            : about();
   app.innerHTML = shell(content);
   guide?.refresh();
   updateNextStep();
   if (page === 'calendar') prepareCalendar();
+  if (page === 'library')
+    updateKnowledgeResults({ language: state.lang, county: state.county, escape: e });
+  if (page === 'evaluation') loadEvaluation();
   if (focusTarget)
     requestAnimationFrame(() => {
       // Do not steal focus if the resident already moved to another control.
@@ -1228,7 +1479,7 @@ function importModal() {
         'Agrega un aviso. Te ayudaremos a verificar el siguiente paso.',
       ),
     ) +
-      `<div class="modal-body">${importError ? `<div class="error-message" role="alert">${e(importError)}</div>` : ''}<div class="tabs" role="group" aria-label="${t('Import method', 'M\xE9todo de importaci\xF3n')}">${['upload', 'paste', 'sample'].map((tab) => `<button aria-pressed="${importTab === tab}" class="${importTab === tab ? 'active' : ''}" data-action="import-tab" data-tab="${tab}">${tab === 'upload' ? t('Upload a file', 'Subir archivo') : tab === 'paste' ? t('Paste text', 'Pegar texto') : t('Try a sample', 'Probar ejemplo')}</button>`).join('')}</div>${importTab === 'upload' ? `<label class="drop-zone" id="drop-zone" for="notice-file">${icon('upload', 30)}<strong>${t('Drop your notice here', 'Suelta tu aviso aqu\xED')}</strong><p>${t('PDF, photo, or plain text \xB7 Up to 20 MB', 'PDF, foto o texto \xB7 Hasta 20 MB')}</p><button type="button" class="button" data-action="choose-file">${t('Choose from device', 'Elegir del dispositivo')}${icon('arrow', 12)}</button><input id="notice-file" type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,.bmp" hidden></label><p class="file-help">${t('English text recognition \xB7 Up to 10 PDF pages \xB7 Use a clear, straight photo.', 'Reconocimiento de texto en ingl\xE9s \xB7 Hasta 10 p\xE1ginas PDF \xB7 Usa una foto clara y recta.')}</p>` : importTab === 'paste' ? `<form id="paste-form"><div class="field"><label for="notice-name">${t('A name for this notice', 'Nombre de este aviso')}</label><input id="notice-name" name="name" maxlength="100" placeholder="${t('e.g. October CalFresh letter', 'p. ej. Aviso de CalFresh de octubre')}"></div><div class="field"><label for="notice-text">${t('Original notice text', 'Texto original del aviso')}</label><textarea id="notice-text" name="text" required maxlength="500000" placeholder="${t('Paste the complete notice, including dates and the form number\u2026', 'Pega el aviso completo, incluidas las fechas y el n\xFAmero de formulario\u2026')}"></textarea></div><button class="button full-width" type="submit">${t('Read this notice', 'Leer este aviso')}${icon('arrow', 14)}</button></form>` : DEMO_NOTICES.map((s) => `<div class="import-sample">${icon('file', 20)}<div><h3>${e(s.title)}</h3><p>${t('Fictional practice notice', 'Aviso ficticio de pr\xE1ctica')}</p></div><button class="button light small" data-action="add-sample" data-id="${e(s.id)}">${t('Try it', 'Probar')}${icon('arrow', 11)}</button><a class="link-button" href="./samples/${e(s.id)}.pdf" download="fictional-${e(s.id)}.pdf" aria-label="${e(t('Download practice PDF: ', 'Descargar PDF de práctica: ') + s.title)}">${icon('download', 14)}PDF</a></div>`).join('')}<div class="modal-note">${icon('lock', 13)}<span>${t('Your notice is read on this device. Signed-in personal files save privately to your account; guest files stay here. No notice is sent to an AI service.', 'Tu aviso se lee localmente. Los archivos personales guardados con sesión se guardan en tu cuenta; los de invitado quedan aquí. No se envían a servicios de IA.')}</span></div></div>`,
+      `<div class="modal-body">${importError ? `<div class="error-message" role="alert">${e(importError)}</div>` : ''}<div class="tabs" role="group" aria-label="${t('Import method', 'M\xE9todo de importaci\xF3n')}">${['upload', 'paste', 'sample'].map((tab) => `<button aria-pressed="${importTab === tab}" class="${importTab === tab ? 'active' : ''}" data-action="import-tab" data-tab="${tab}">${tab === 'upload' ? t('Upload a file', 'Subir archivo') : tab === 'paste' ? t('Paste text', 'Pegar texto') : t('Try a sample', 'Probar ejemplo')}</button>`).join('')}</div>${importTab === 'upload' ? `<label class="drop-zone" id="drop-zone" for="notice-file">${icon('upload', 30)}<strong>${t('Drop your notice here', 'Suelta tu aviso aqu\xED')}</strong><p>${t('PDF, photo, or plain text \xB7 Up to 20 MB', 'PDF, foto o texto \xB7 Hasta 20 MB')}</p><button type="button" class="button" data-action="choose-file">${t('Choose from device', 'Elegir del dispositivo')}${icon('arrow', 12)}</button><input id="notice-file" type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,.bmp" hidden></label><p class="file-help">${t('English / Spanish text recognition \xB7 Up to 10 PDF pages \xB7 Use a clear, straight photo.', 'Reconocimiento de texto en ingl\xE9s y espa\xF1ol \xB7 Hasta 10 p\xE1ginas PDF \xB7 Usa una foto clara y recta.')}</p>` : importTab === 'paste' ? `<form id="paste-form"><div class="field"><label for="notice-name">${t('A name for this notice', 'Nombre de este aviso')}</label><input id="notice-name" name="name" maxlength="100" placeholder="${t('e.g. October CalFresh letter', 'p. ej. Aviso de CalFresh de octubre')}"></div><div class="field"><label for="notice-text">${t('Original notice text', 'Texto original del aviso')}</label><textarea id="notice-text" name="text" required maxlength="500000" placeholder="${t('Paste the complete notice, including dates and the form number\u2026', 'Pega el aviso completo, incluidas las fechas y el n\xFAmero de formulario\u2026')}"></textarea></div><button class="button full-width" type="submit">${t('Read this notice', 'Leer este aviso')}${icon('arrow', 14)}</button></form>` : DEMO_NOTICES.map((s) => `<div class="import-sample">${icon('file', 20)}<div><h3>${e(s.title)}</h3><p>${t('Fictional practice notice', 'Aviso ficticio de pr\xE1ctica')}</p></div><button class="button light small" data-action="add-sample" data-id="${e(s.id)}">${t('Try it', 'Probar')}${icon('arrow', 11)}</button><a class="link-button" href="./samples/${e(s.id)}.pdf" download="fictional-${e(s.id)}.pdf" aria-label="${e(t('Download practice PDF: ', 'Descargar PDF de práctica: ') + s.title)}">${icon('download', 14)}PDF</a></div>`).join('')}<div class="modal-note">${icon('lock', 13)}<span>${t('Your notice is read on this device. Signed-in personal files save privately to your account; guest files stay here. No notice is sent to an AI service.', 'Tu aviso se lee localmente. Los archivos personales guardados con sesión se guardan en tu cuenta; los de invitado quedan aquí. No se envían a servicios de IA.')}</span></div></div>`,
   );
 }
 function importProgress(p) {
@@ -1242,8 +1493,22 @@ async function addText(text, filename, options = {}) {
     throw new Error(
       t('Add some readable notice text first.', 'Primero agrega texto legible del aviso.'),
     );
-  state.mode = options.isDemo ? 'demo' : 'personal';
+  const destination = options.isDemo ? 'demo' : 'personal';
+  if (state.mode !== destination) setWorkspaceMode(destination);
+  const owner = workspaceOwner();
   const n = analyzeNotice(text, { filename, county: 'unknown', isDemo: false, ...options });
+  try {
+    n.insight = inspectDocumentText(text, await documentModel());
+  } catch {
+    /* source-backed review stays available offline */
+  }
+  if (owner !== workspaceOwner())
+    throw new Error(
+      t(
+        'The workspace changed. Add this notice again in the intended account.',
+        'El espacio cambió. Agrega el aviso otra vez en la cuenta correspondiente.',
+      ),
+    );
   n.reviewed = false;
   workspace().notices.unshift(n);
   event('imported', t('Notice added', 'Aviso agregado'), n.id);
@@ -1261,10 +1526,16 @@ async function addText(text, filename, options = {}) {
 async function importFile(file) {
   if (busy) return;
   busy = true;
+  setWorkspaceMode('personal');
+  const owner = workspaceOwner();
   importError = '';
   try {
     importProgress({ progress: 0.01 });
-    const result = await extractFile(file, importProgress);
+    const result = await extractFile(file, importProgress, {
+      language: state.lang,
+      includeLayout: true,
+    });
+    if (owner !== workspaceOwner()) return;
     let attachmentId;
     try {
       attachmentId = await storeFile(file);
@@ -1276,10 +1547,21 @@ async function importFile(file) {
         ),
       );
     }
+    if (owner !== workspaceOwner()) return;
     const n = await addText(result.text, file.name);
+    if (owner !== workspaceOwner()) return;
     n.originalAttachmentId = attachmentId;
     n.importKind = result.kind;
     n.ocr = result.ocr;
+    n.layout = result.layout;
+    n.scanQuality = result.scanQuality;
+    if (result.layoutTruncated)
+      n.warnings.push(
+        t(
+          'Source highlights are limited for this dense file. The complete readable text and original file remain available; unlocated wording needs manual review.',
+          'Los resaltados son limitados para este archivo denso. El texto legible completo y archivo original siguen disponibles; revisa manualmente el texto no localizado.',
+        ),
+      );
     if (result.ocr) {
       n.deadlines.forEach((d) => {
         d.needsReview = true;
@@ -1291,10 +1573,21 @@ async function importFile(file) {
           'Este texto proviene de reconocimiento de imagen. Comp\xE1ralo con el original; pueden faltar marcas o caracteres.',
         ),
       );
+      const unclearPages = (result.scanQuality || [])
+        .filter((item) => item.needsReview)
+        .map((item) => item.page);
+      if (unclearPages.length)
+        n.warnings.push(
+          t(
+            `The OCR reader reported uncertain text on page(s) ${unclearPages.join(', ')}. Read those original pages carefully; the score does not establish that any field is correct.`,
+            `El lector OCR indicó texto incierto en las páginas ${unclearPages.join(', ')}. Revísalas en el original; el puntaje no confirma que ningún campo sea correcto.`,
+          ),
+        );
     }
     await persist();
     render();
   } catch (err) {
+    if (owner !== workspaceOwner()) return;
     importError = err.message;
     importTab = 'upload';
     importModal();
@@ -1347,10 +1640,14 @@ function handoffModal() {
 function privacyModal() {
   showModal(
     modalHead(t('Your information stays yours.', 'Tu informaci\xF3n te pertenece.')) +
-      `<div class="modal-body body-text"><p>${t('Anchor reads your PDFs and English-language images on your device. It does not send notice content to an AI service, analytics provider, or document-processing server. Its PDF reader and OCR files are served from the same site.', 'Anchor lee PDFs e im\xE1genes en ingl\xE9s en tu dispositivo. No env\xEDa los avisos a un servicio de IA, proveedor de an\xE1lisis ni servidor de procesamiento. Sus archivos de lectura PDF y OCR provienen del mismo sitio.')}</p><p>${t('Guest notices and files stay in this browser. When signed in, personal notices, originals, progress, and receipts save to your private Anchor account. A local account copy supports offline work; pending changes must reconnect before they reach other devices. Sign out after saving to clear that account’s local copy. Keep important originals and confirmations separately.', 'Los avisos y archivos de invitado quedan en este navegador. Con sesión iniciada, los avisos personales, originales, progreso y recibos se guardan en tu cuenta privada de Anchor. La copia local permite trabajar sin conexión; los cambios pendientes necesitan conexión para llegar a otros dispositivos. Cierra sesión después de guardar para borrar la copia local de esa cuenta. Conserva tus originales importantes.')}</p><p>${t('Saved pages work offline after the first visit. The larger PDF/OCR readers must be prepared once while connected before offline file imports. Choose a calendar file or optionally connect Google Calendar to add selected reminders.', 'Las p\xE1ginas guardadas funcionan sin conexi\xF3n despu\xE9s de la primera visita. Los lectores PDF/OCR deben prepararse con conexi\xF3n antes de importar archivos sin conexi\xF3n. No hay notificaciones en segundo plano; exportas las fechas a tu calendario.')}</p><p>${t('This is a focused prototype for English CalFresh renewal and verification notice families. It flags unsupported documents and ambiguous dates for human review. Original forms, checkbox appearance, and OCR errors can affect interpretation. The county determines eligibility, acceptance, and benefit status.', 'Este prototipo se centra en avisos de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s. Marca documentos no compatibles y fechas ambiguas para revisi\xF3n humana. Los formularios, casillas y errores de reconocimiento pueden afectar la interpretaci\xF3n. El condado determina elegibilidad, aceptaci\xF3n y estado de beneficios.')}</p><div class="button-row"><button class="button light" data-action="prepare-offline">${icon('download', 13)}${t('Prepare readers for offline use', 'Preparar lectores sin conexi\xF3n')}</button><button class="button light" data-action="backup">${t('Download backup', 'Descargar copia')}</button></div><p><a href="./privacy.html">${t('Read the full privacy policy', 'Leer la política de privacidad completa')}</a> · <a href="./terms.html">${t('Terms of use', 'Condiciones de uso')}</a></p><p id="offline-status" class="hint" role="status"></p></div>`,
+      `<div class="modal-body body-text"><p>${t('Anchor reads your PDFs and English/Spanish images on your device. It does not send notice content to an AI service, analytics provider, or document-processing server. Its PDF reader and OCR files are served from the same site.', 'Anchor lee PDFs e im\xE1genes en ingl\xE9s y espa\xF1ol en tu dispositivo. No env\xEDa los avisos a un servicio de IA, proveedor de an\xE1lisis ni servidor de procesamiento. Sus archivos de lectura PDF y OCR provienen del mismo sitio.')}</p><p>${t('Guest notices and files stay in this browser. When signed in, personal notices, originals, progress, and receipts save to your private Anchor account. A local account copy supports offline work; pending changes must reconnect before they reach other devices. Sign out after saving to clear that account’s local copy. Keep important originals and confirmations separately.', 'Los avisos y archivos de invitado quedan en este navegador. Con sesión iniciada, los avisos personales, originales, progreso y recibos se guardan en tu cuenta privada de Anchor. La copia local permite trabajar sin conexión; los cambios pendientes necesitan conexión para llegar a otros dispositivos. Cierra sesión después de guardar para borrar la copia local de esa cuenta. Conserva tus originales importantes.')}</p><p>${t('Saved pages work offline after the first visit. The larger PDF/OCR readers must be prepared once while connected before offline file imports. Choose a calendar file or optionally connect Google Calendar to add selected reminders.', 'Las p\xE1ginas guardadas funcionan sin conexi\xF3n despu\xE9s de la primera visita. Los lectores PDF/OCR deben prepararse con conexi\xF3n antes de importar archivos sin conexi\xF3n. No hay notificaciones en segundo plano; exportas las fechas a tu calendario.')}</p><p>${t('This is a focused prototype for supported English and Spanish CalFresh renewal and verification notice families. It flags unsupported documents and ambiguous dates for human review. Original forms, checkbox appearance, and OCR errors can affect interpretation. The county determines eligibility, acceptance, and benefit status.', 'Este prototipo se centra en avisos de renovaci\xF3n y verificaci\xF3n de CalFresh en ingl\xE9s y espa\xF1ol. Marca documentos no compatibles y fechas ambiguas para revisi\xF3n humana. Los formularios, casillas y errores de reconocimiento pueden afectar la interpretaci\xF3n. El condado determina elegibilidad, aceptaci\xF3n y estado de beneficios.')}</p><div class="button-row"><button class="button light" data-action="prepare-offline">${icon('download', 13)}${t('Prepare readers for offline use', 'Preparar lectores sin conexi\xF3n')}</button><button class="button light" data-action="backup">${t('Download backup', 'Descargar copia')}</button></div><p><a href="./privacy.html">${t('Read the full privacy policy', 'Leer la política de privacidad completa')}</a> · <a href="./terms.html">${t('Terms of use', 'Condiciones de uso')}</a></p><p id="offline-status" class="hint" role="status"></p></div>`,
   );
 }
 app.addEventListener('click', handleClick);
+app.addEventListener('input', (ev) => {
+  if (ev.target.id === 'knowledge-query')
+    updateKnowledgeResults({ language: state.lang, county: state.county, escape: e });
+});
 modal.addEventListener('click', handleClick);
 async function handleClick(ev) {
   const btn = ev.target.closest('[data-action]');
@@ -1358,6 +1655,19 @@ async function handleClick(ev) {
   const a = btn.dataset.action;
   ev.preventDefault();
   try {
+    if (await readinessUI.action(btn)) return;
+    if (a === 'packet') {
+      packetUI.open();
+      return;
+    }
+    if (a === 'source-image') {
+      await originalArea(btn.dataset.id, Number(btn.dataset.line));
+      return;
+    }
+    if (a === 'readiness-demo') {
+      await readinessDemo();
+      return;
+    }
     if (formAssistant.action(btn)) return;
     if (assistant.action(btn)) return;
     if (a === 'form-open') {
@@ -1502,7 +1812,7 @@ async function handleClick(ev) {
       return;
     }
     if (a === 'workspace-personal' || a === 'workspace-demo') {
-      state.mode = a === 'workspace-personal' ? 'personal' : 'demo';
+      setWorkspaceMode(a === 'workspace-personal' ? 'personal' : 'demo');
       await persist();
       navigate('overview');
       return;
@@ -1612,11 +1922,13 @@ async function handleClick(ev) {
         );
         return;
       }
+      readinessUI.reset();
+      packetUI.reset();
       modal.close();
       return;
     }
     if (a === 'switch-mode' || a === 'demo') {
-      state.mode = a === 'demo' ? 'demo' : state.mode === 'demo' ? 'personal' : 'demo';
+      setWorkspaceMode(a === 'demo' ? 'demo' : state.mode === 'demo' ? 'personal' : 'demo');
       await persist();
       if (modal.open) modal.close();
       navigate('overview');
@@ -1625,7 +1937,7 @@ async function handleClick(ev) {
     if (a === 'add-sample') {
       const sample = DEMO_NOTICES.find((n) => n.id === btn.dataset.id);
       if (!sample) return;
-      state.mode = 'demo';
+      setWorkspaceMode('demo');
       const existing = noticeById('demo-' + sample.id);
       if (existing) {
         modal.close();
@@ -1805,6 +2117,7 @@ async function handleClick(ev) {
       return;
     }
     if (a === 'confirm-clear') {
+      invalidateWorkspaceTasks();
       if (state.mode === 'demo') {
         state.demo = sampleWorkspace();
         await persist();
@@ -1890,6 +2203,15 @@ document.addEventListener('change', async (ev) => {
     return;
   }
   const el = ev.target;
+  if (el.id === 'reading-size') {
+    document.documentElement.dataset.readingSize = el.value === 'large' ? 'large' : 'standard';
+    try {
+      localStorage.setItem('anchor-reading-size-v1', document.documentElement.dataset.readingSize);
+    } catch {
+      /* The choice still applies in this visit. */
+    }
+    return;
+  }
   if (el.id === 'language') {
     state.lang = el.value;
     await persist();
@@ -1900,6 +2222,10 @@ document.addEventListener('change', async (ev) => {
     state.county = el.value;
     await persist();
     render();
+    return;
+  }
+  if (['knowledge-program', 'knowledge-county'].includes(el.id)) {
+    updateKnowledgeResults({ language: state.lang, county: state.county, escape: e });
     return;
   }
   if (el.id === 'notice-file' && el.files[0]) {
@@ -2091,9 +2417,17 @@ modal.addEventListener('submit', async (ev) => {
 });
 modal.addEventListener('cancel', (ev) => {
   if (busy || calendarBusy) ev.preventDefault();
-  else if (modal.querySelector('#form-assistance-draft')) saveActiveForm().catch(() => {});
+  else {
+    if (modal.querySelector('#form-assistance-draft')) saveActiveForm().catch(() => {});
+    readinessUI.reset();
+    packetUI.reset();
+  }
 });
 modal.addEventListener('close', () => {
+  // Native Escape and programmatic dismissal both invalidate asynchronous
+  // readers/exports. A closed dialog cannot reopen or download a stale result.
+  readinessUI.reset();
+  packetUI.reset();
   activeForm = null;
   clearTimeout(formPreviewTimer);
   clearTimeout(formSaveTimer);
@@ -2160,7 +2494,7 @@ async function prepareReaders(btn) {
     const res = await fetch(assetURL('vendor/manifest.json'));
     if (!res.ok) throw new Error('Reader assets are unavailable. Try again while connected.');
     const manifest = await res.json(),
-      cache = await caches.open('anchor-readers-v1');
+      cache = await caches.open(`anchor-readers-v2:${new URL('./', location.href).pathname}`);
     let ready = 0;
     for (let i = 0; i < manifest.assets.length; i += 5) {
       await Promise.all(
@@ -2180,8 +2514,8 @@ async function prepareReaders(btn) {
     }
     if (status)
       status.textContent = t(
-        'PDF and English image readers are ready for offline use on this device.',
-        'Los lectores PDF e im\xE1genes en ingl\xE9s est\xE1n listos sin conexi\xF3n en este dispositivo.',
+        'PDF, English and Spanish image readers are ready for offline use on this device.',
+        'Los lectores PDF e imágenes en inglés y español están listos sin conexión en este dispositivo.',
       );
   } catch (err) {
     if (status) status.textContent = err.message;
@@ -2190,6 +2524,12 @@ async function prepareReaders(btn) {
   }
 }
 async function init() {
+  try {
+    document.documentElement.dataset.readingSize =
+      localStorage.getItem('anchor-reading-size-v1') === 'large' ? 'large' : 'standard';
+  } catch {
+    /* Browser storage may be disabled. */
+  }
   try {
     const saved = await loadState();
     state =
@@ -2206,27 +2546,31 @@ async function init() {
     fetch: accountTransport.fetch,
     getState: () => state,
     onState: (saved) => {
+      invalidateWorkspaceTasks();
       // A restored or switched account invalidates any open record-edit dialog.
       if (
         modal.open &&
         modal.querySelector(
-          '#acknowledgment-form, #reuse-form, #form-assistance-draft, #calendar-create-status',
+          '#acknowledgment-form, #reuse-form, #form-assistance-draft, #calendar-create-status, #evidence-add-form, #evidence-confirm-form, #appointment-packet-form, #original-area-status',
         )
       )
         modal.close();
       activeForm = null;
       formPreviewGeneration++;
       calendarPending = null;
+      readinessUI.reset();
+      packetUI.reset();
       state = { ...state, ...saved, mode: 'personal' };
       selected = null;
       highlightLine = null;
       render();
     },
     onReset: (saved) => {
+      invalidateWorkspaceTasks();
       if (
         modal.open &&
         modal.querySelector(
-          '#acknowledgment-form, #reuse-form, #form-assistance-draft, #calendar-create-status',
+          '#acknowledgment-form, #reuse-form, #form-assistance-draft, #calendar-create-status, #evidence-add-form, #evidence-confirm-form, #appointment-packet-form, #original-area-status',
         )
       )
         modal.close();
@@ -2236,6 +2580,8 @@ async function init() {
       calendarClient.clear();
       assistant.reset();
       formAssistant.reset();
+      readinessUI.reset();
+      packetUI.reset();
       state = saved?.demo ? saved : freshState();
       selected = null;
       highlightLine = null;
@@ -2246,9 +2592,12 @@ async function init() {
       const reconnected =
         accountInfo.authenticated && !accountInfo.sessionVerified && snapshot.sessionVerified;
       if (accountInfo.user?.id !== snapshot.user?.id) {
+        invalidateWorkspaceTasks();
         calendarClient.clear();
         assistant.reset();
         formAssistant.reset();
+        readinessUI.reset();
+        packetUI.reset();
       }
       signInTourPending ||= signedIn || reconnected;
       accountInfo = snapshot;

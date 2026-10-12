@@ -23,3 +23,8 @@ web/district-services.js*
 web/google-calendar.js*
 web/google-calendar-client.js*
 __pycache__/
+web/source-locations.js*
+web/document-intelligence.js*
+web/evidence-readiness.js*
+web/appointment-packet.js*
+web/spanish-form-guide.js*
