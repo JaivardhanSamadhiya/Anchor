@@ -137,6 +137,58 @@ test('Supabase Postgres migration enforces ownership, revisions, validation, and
     await assert.rejects(rpc(db, 'anchor_begin_attachment_delete', [A, FILE]), /attachment_referenced/);
   });
 
+  await t.test('nested document intelligence and source coordinates save privately within JSON bounds', async () => {
+    // Exercise the production workspace validator and recursive ownership check,
+    // rather than treating new browser-only metadata as already safe to sync.
+    const state = empty();
+    const sourceText = 'Pay period September 2026. Gross pay $1200.00.';
+    const word = { text: 'September', x: 0.1, y: 0.2, w: 0.15, h: 0.03 };
+    state.personal.notices.push({
+      id: 'private-readiness-notice', title: 'Practice evidence review', sourceText,
+      deadlines: [], requests: [], warnings: [], originalAttachmentId: FILE,
+      layout: [{ page: 1, width: 612, height: 792, words: Array.from({ length: 2000 }, () => ({ ...word })) }],
+      scanQuality: [{ page: 1, confidence: 78, needsReview: true }],
+      evidenceDocuments: [{
+        id: 'private-paystub', name: 'proof.txt', attachmentId: FILE, text: sourceText,
+        sha256: 'a'.repeat(64),
+        insight: {
+          version: 1,
+          classification: { kind: 'paystub', modelVersion: 'anchor-documents-2026-10-12-v1', needsConfirmation: true },
+          months: [{ month: '2026-09', role: 'reporting', quote: 'Pay period September 2026', start: 0, end: 25, line: 0 }],
+          amounts: [{ cents: 120000, kind: 'gross-income', quote: 'Gross pay $1200.00', start: 27, end: 44, line: 0 }],
+          people: [], textFingerprint: 'review-key',
+        },
+        confirmation: { checked: true, kind: 'paystub', month: '2026-09', person: 'Fictional Example',
+          amountCents: 120000, amountKind: 'gross-income', amountBasis: 'monthly' },
+      }],
+    });
+    await caller(db, A);
+    const result = await save(db, A, state, revision);
+    revision = result.revision;
+    const stored = (await db.query('select state from public.anchor_workspaces')).rows[0].state;
+    assert.deepEqual(stored, state, 'local suggestions, confirmed facts and exact source metadata survive an account save');
+    await assert.rejects(rpc(db, 'anchor_begin_attachment_delete', [A, FILE]), /attachment_referenced/);
+
+    // The same ready file still belongs to A when referenced inside the new,
+    // deeper document shape: neither B nor an unreserved file can bypass that.
+    await caller(db, B);
+    assert.equal((await db.query('select * from public.anchor_workspaces where user_id=$1', [A])).rows.length, 0);
+    await assert.rejects(save(db, B, state, 1), /attachment_not_ready/);
+    await caller(db, A);
+    const missingFile = structuredClone(state);
+    missingFile.personal.notices[0].evidenceDocuments[0].attachmentId = FILE2;
+    await assert.rejects(save(db, A, missingFile, revision), /attachment_not_ready/);
+
+    // A 2,000-word coordinate array is the production JSON limit. Going one
+    // over must fail atomically, leaving the last valid revision untouched.
+    const tooManyWords = structuredClone(state);
+    tooManyWords.personal.notices[0].layout[0].words.push(word);
+    await assert.rejects(save(db, A, tooManyWords, revision), /invalid_workspace/);
+    const unchanged = (await db.query('select state,revision from public.anchor_workspaces')).rows[0];
+    assert.deepEqual(unchanged.state, state);
+    assert.equal(unchanged.revision, revision);
+  });
+
   await t.test('clear keeps a revision tombstone and removes only the marked evidence', async () => {
     await caller(db, A);
     const cleared = await rpc(db, 'anchor_clear_workspace', [A]);

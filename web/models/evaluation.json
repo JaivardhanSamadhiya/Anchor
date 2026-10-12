@@ -1,0 +1,604 @@
+{
+  "schemaVersion": 1,
+  "modelVersion": "anchor-documents-2026-10-12-v1",
+  "reviewedAt": "2026-10-12",
+  "modelSha256": "bb390fa808799bcfc76f30b0c49ccde43d93334f2f2f7310f2956eb921035826",
+  "corpusSha256": "e24d29da211c1bba4eefffeec07d0b9fcaddae1f2946c1c8304e3e9aa81ed8a8",
+  "scope": "Separately authored English/Spanish fictional short excerpts; not real-world or user-study evidence",
+  "trainingExamples": 84,
+  "testExamples": 24,
+  "correct": 24,
+  "supportedExamples": 20,
+  "coveredSupportedExamples": 20,
+  "correctCoveredExamples": 20,
+  "abstentionExamples": 6,
+  "correctAbstentions": 6,
+  "languages": {
+    "en": {
+      "total": 12,
+      "correct": 12
+    },
+    "es": {
+      "total": 12,
+      "correct": 12
+    }
+  },
+  "confusion": {
+    "benefit-notice": {
+      "benefit-notice": 4,
+      "paystub": 0,
+      "rent-proof": 0,
+      "identity": 0,
+      "utility-bill": 0,
+      "unknown": 0
+    },
+    "paystub": {
+      "benefit-notice": 0,
+      "paystub": 4,
+      "rent-proof": 0,
+      "identity": 0,
+      "utility-bill": 0,
+      "unknown": 0
+    },
+    "rent-proof": {
+      "benefit-notice": 0,
+      "paystub": 0,
+      "rent-proof": 4,
+      "identity": 0,
+      "utility-bill": 0,
+      "unknown": 0
+    },
+    "identity": {
+      "benefit-notice": 0,
+      "paystub": 0,
+      "rent-proof": 0,
+      "identity": 4,
+      "utility-bill": 0,
+      "unknown": 0
+    },
+    "utility-bill": {
+      "benefit-notice": 0,
+      "paystub": 0,
+      "rent-proof": 0,
+      "identity": 0,
+      "utility-bill": 4,
+      "unknown": 0
+    },
+    "unknown": {
+      "benefit-notice": 0,
+      "paystub": 0,
+      "rent-proof": 0,
+      "identity": 0,
+      "utility-bill": 0,
+      "unknown": 4
+    }
+  },
+  "results": [
+    {
+      "id": "notice-en-1",
+      "language": "en",
+      "expected": "benefit-notice",
+      "actual": "benefit-notice",
+      "correct": true,
+      "score": 0.971144,
+      "margin": 0.952469
+    },
+    {
+      "id": "notice-en-2",
+      "language": "en",
+      "expected": "benefit-notice",
+      "actual": "benefit-notice",
+      "correct": true,
+      "score": 0.994457,
+      "margin": 0.992843
+    },
+    {
+      "id": "notice-es-1",
+      "language": "es",
+      "expected": "benefit-notice",
+      "actual": "benefit-notice",
+      "correct": true,
+      "score": 0.984668,
+      "margin": 0.975582
+    },
+    {
+      "id": "notice-es-2",
+      "language": "es",
+      "expected": "benefit-notice",
+      "actual": "benefit-notice",
+      "correct": true,
+      "score": 0.971925,
+      "margin": 0.95426
+    },
+    {
+      "id": "pay-en-1",
+      "language": "en",
+      "expected": "paystub",
+      "actual": "paystub",
+      "correct": true,
+      "score": 0.996121,
+      "margin": 0.99516
+    },
+    {
+      "id": "pay-en-2",
+      "language": "en",
+      "expected": "paystub",
+      "actual": "paystub",
+      "correct": true,
+      "score": 0.889668,
+      "margin": 0.860293
+    },
+    {
+      "id": "pay-es-1",
+      "language": "es",
+      "expected": "paystub",
+      "actual": "paystub",
+      "correct": true,
+      "score": 0.985613,
+      "margin": 0.980222
+    },
+    {
+      "id": "pay-es-2",
+      "language": "es",
+      "expected": "paystub",
+      "actual": "paystub",
+      "correct": true,
+      "score": 0.950852,
+      "margin": 0.926554
+    },
+    {
+      "id": "rent-en-1",
+      "language": "en",
+      "expected": "rent-proof",
+      "actual": "rent-proof",
+      "correct": true,
+      "score": 0.986101,
+      "margin": 0.981951
+    },
+    {
+      "id": "rent-en-2",
+      "language": "en",
+      "expected": "rent-proof",
+      "actual": "rent-proof",
+      "correct": true,
+      "score": 0.937104,
+      "margin": 0.904935
+    },
+    {
+      "id": "rent-es-1",
+      "language": "es",
+      "expected": "rent-proof",
+      "actual": "rent-proof",
+      "correct": true,
+      "score": 0.96194,
+      "margin": 0.947051
+    },
+    {
+      "id": "rent-es-2",
+      "language": "es",
+      "expected": "rent-proof",
+      "actual": "rent-proof",
+      "correct": true,
+      "score": 0.943964,
+      "margin": 0.904068
+    },
+    {
+      "id": "id-en-1",
+      "language": "en",
+      "expected": "identity",
+      "actual": "identity",
+      "correct": true,
+      "score": 0.936893,
+      "margin": 0.908438
+    },
+    {
+      "id": "id-en-2",
+      "language": "en",
+      "expected": "identity",
+      "actual": "identity",
+      "correct": true,
+      "score": 0.982694,
+      "margin": 0.976783
+    },
+    {
+      "id": "id-es-1",
+      "language": "es",
+      "expected": "identity",
+      "actual": "identity",
+      "correct": true,
+      "score": 0.990445,
+      "margin": 0.98791
+    },
+    {
+      "id": "id-es-2",
+      "language": "es",
+      "expected": "identity",
+      "actual": "identity",
+      "correct": true,
+      "score": 0.84847,
+      "margin": 0.732685
+    },
+    {
+      "id": "utility-en-1",
+      "language": "en",
+      "expected": "utility-bill",
+      "actual": "utility-bill",
+      "correct": true,
+      "score": 0.983968,
+      "margin": 0.978574
+    },
+    {
+      "id": "utility-en-2",
+      "language": "en",
+      "expected": "utility-bill",
+      "actual": "utility-bill",
+      "correct": true,
+      "score": 0.987481,
+      "margin": 0.980607
+    },
+    {
+      "id": "utility-es-1",
+      "language": "es",
+      "expected": "utility-bill",
+      "actual": "utility-bill",
+      "correct": true,
+      "score": 0.970077,
+      "margin": 0.946759
+    },
+    {
+      "id": "utility-es-2",
+      "language": "es",
+      "expected": "utility-bill",
+      "actual": "utility-bill",
+      "correct": true,
+      "score": 0.955024,
+      "margin": 0.924235
+    },
+    {
+      "id": "other-en-1",
+      "language": "en",
+      "expected": "unknown",
+      "actual": "unknown",
+      "correct": true,
+      "score": 0.896566,
+      "margin": 0.859095
+    },
+    {
+      "id": "other-en-2",
+      "language": "en",
+      "expected": "unknown",
+      "actual": "unknown",
+      "correct": true,
+      "score": 0.36538,
+      "margin": 0.137061
+    },
+    {
+      "id": "other-es-1",
+      "language": "es",
+      "expected": "unknown",
+      "actual": "unknown",
+      "correct": true,
+      "score": 0.598777,
+      "margin": 0.361569
+    },
+    {
+      "id": "other-es-2",
+      "language": "es",
+      "expected": "unknown",
+      "actual": "unknown",
+      "correct": true,
+      "score": 0.274978,
+      "margin": 0.033833
+    }
+  ],
+  "baseline": {
+    "name": "Fixed bilingual keyword cue counts",
+    "version": "keyword-cues-v1",
+    "method": "Count distinct literal category cues after accent-insensitive normalization; abstain on ties or no cues",
+    "trained": false,
+    "testUsedForTuning": false,
+    "cues": {
+      "benefit-notice": [
+        "benefit notice",
+        "calfresh",
+        "medi cal",
+        "aviso",
+        "county",
+        "condado",
+        "eligibility"
+      ],
+      "paystub": [
+        "paystub",
+        "pay stub",
+        "payroll",
+        "gross pay",
+        "gross wages",
+        "net pay",
+        "pay period",
+        "nomina",
+        "sueldo bruto",
+        "pago neto",
+        "talon de pago"
+      ],
+      "rent-proof": [
+        "rent",
+        "rental",
+        "lease",
+        "tenant",
+        "landlord",
+        "alquiler",
+        "renta",
+        "arrendador",
+        "inquilino"
+      ],
+      "identity": [
+        "identification",
+        "identity",
+        "driver license",
+        "passport",
+        "identificacion",
+        "pasaporte",
+        "licencia de conducir"
+      ],
+      "utility-bill": [
+        "utility",
+        "electricity",
+        "electric",
+        "kwh",
+        "water bill",
+        "electricidad",
+        "factura de agua",
+        "servicios publicos",
+        "medidor"
+      ]
+    },
+    "testExamples": 24,
+    "correct": 24,
+    "supportedExamples": 20,
+    "coveredSupportedExamples": 20,
+    "correctCoveredExamples": 20,
+    "abstentionExamples": 6,
+    "correctAbstentions": 6,
+    "confusion": {
+      "benefit-notice": {
+        "benefit-notice": 4,
+        "paystub": 0,
+        "rent-proof": 0,
+        "identity": 0,
+        "utility-bill": 0,
+        "unknown": 0
+      },
+      "paystub": {
+        "benefit-notice": 0,
+        "paystub": 4,
+        "rent-proof": 0,
+        "identity": 0,
+        "utility-bill": 0,
+        "unknown": 0
+      },
+      "rent-proof": {
+        "benefit-notice": 0,
+        "paystub": 0,
+        "rent-proof": 4,
+        "identity": 0,
+        "utility-bill": 0,
+        "unknown": 0
+      },
+      "identity": {
+        "benefit-notice": 0,
+        "paystub": 0,
+        "rent-proof": 0,
+        "identity": 4,
+        "utility-bill": 0,
+        "unknown": 0
+      },
+      "utility-bill": {
+        "benefit-notice": 0,
+        "paystub": 0,
+        "rent-proof": 0,
+        "identity": 0,
+        "utility-bill": 4,
+        "unknown": 0
+      },
+      "unknown": {
+        "benefit-notice": 0,
+        "paystub": 0,
+        "rent-proof": 0,
+        "identity": 0,
+        "utility-bill": 0,
+        "unknown": 4
+      }
+    },
+    "results": [
+      {
+        "id": "notice-en-1",
+        "language": "en",
+        "expected": "benefit-notice",
+        "actual": "benefit-notice",
+        "correct": true
+      },
+      {
+        "id": "notice-en-2",
+        "language": "en",
+        "expected": "benefit-notice",
+        "actual": "benefit-notice",
+        "correct": true
+      },
+      {
+        "id": "notice-es-1",
+        "language": "es",
+        "expected": "benefit-notice",
+        "actual": "benefit-notice",
+        "correct": true
+      },
+      {
+        "id": "notice-es-2",
+        "language": "es",
+        "expected": "benefit-notice",
+        "actual": "benefit-notice",
+        "correct": true
+      },
+      {
+        "id": "pay-en-1",
+        "language": "en",
+        "expected": "paystub",
+        "actual": "paystub",
+        "correct": true
+      },
+      {
+        "id": "pay-en-2",
+        "language": "en",
+        "expected": "paystub",
+        "actual": "paystub",
+        "correct": true
+      },
+      {
+        "id": "pay-es-1",
+        "language": "es",
+        "expected": "paystub",
+        "actual": "paystub",
+        "correct": true
+      },
+      {
+        "id": "pay-es-2",
+        "language": "es",
+        "expected": "paystub",
+        "actual": "paystub",
+        "correct": true
+      },
+      {
+        "id": "rent-en-1",
+        "language": "en",
+        "expected": "rent-proof",
+        "actual": "rent-proof",
+        "correct": true
+      },
+      {
+        "id": "rent-en-2",
+        "language": "en",
+        "expected": "rent-proof",
+        "actual": "rent-proof",
+        "correct": true
+      },
+      {
+        "id": "rent-es-1",
+        "language": "es",
+        "expected": "rent-proof",
+        "actual": "rent-proof",
+        "correct": true
+      },
+      {
+        "id": "rent-es-2",
+        "language": "es",
+        "expected": "rent-proof",
+        "actual": "rent-proof",
+        "correct": true
+      },
+      {
+        "id": "id-en-1",
+        "language": "en",
+        "expected": "identity",
+        "actual": "identity",
+        "correct": true
+      },
+      {
+        "id": "id-en-2",
+        "language": "en",
+        "expected": "identity",
+        "actual": "identity",
+        "correct": true
+      },
+      {
+        "id": "id-es-1",
+        "language": "es",
+        "expected": "identity",
+        "actual": "identity",
+        "correct": true
+      },
+      {
+        "id": "id-es-2",
+        "language": "es",
+        "expected": "identity",
+        "actual": "identity",
+        "correct": true
+      },
+      {
+        "id": "utility-en-1",
+        "language": "en",
+        "expected": "utility-bill",
+        "actual": "utility-bill",
+        "correct": true
+      },
+      {
+        "id": "utility-en-2",
+        "language": "en",
+        "expected": "utility-bill",
+        "actual": "utility-bill",
+        "correct": true
+      },
+      {
+        "id": "utility-es-1",
+        "language": "es",
+        "expected": "utility-bill",
+        "actual": "utility-bill",
+        "correct": true
+      },
+      {
+        "id": "utility-es-2",
+        "language": "es",
+        "expected": "utility-bill",
+        "actual": "utility-bill",
+        "correct": true
+      },
+      {
+        "id": "other-en-1",
+        "language": "en",
+        "expected": "unknown",
+        "actual": "unknown",
+        "correct": true
+      },
+      {
+        "id": "other-en-2",
+        "language": "en",
+        "expected": "unknown",
+        "actual": "unknown",
+        "correct": true
+      },
+      {
+        "id": "other-es-1",
+        "language": "es",
+        "expected": "unknown",
+        "actual": "unknown",
+        "correct": true
+      },
+      {
+        "id": "other-es-2",
+        "language": "es",
+        "expected": "unknown",
+        "actual": "unknown",
+        "correct": true
+      }
+    ],
+    "limitations": [
+      "Uses exactly the same small fictional fixture as the model",
+      "No real-world validation",
+      "Literal cues cannot establish document validity or acceptance"
+    ]
+  },
+  "metricDefinitions": {
+    "correct": "Correct suggested class, including rejection of unsupported documents",
+    "coveredSupportedExamples": "Supported test excerpts where the model made a suggestion rather than abstaining",
+    "correctCoveredExamples": "Correct suggestions among those covered excerpts",
+    "correctAbstentions": "Rejection of the separate sparse, mixed or unfamiliar text challenge set"
+  },
+  "userStudy": {
+    "participants": 0,
+    "status": "Not conducted; no participant or impact claims"
+  },
+  "limitations": [
+    "Short synthetic excerpts only",
+    "No real-world validation",
+    "Scores are not calibrated probabilities",
+    "Not document authentication or eligibility"
+  ]
+}
