@@ -106,6 +106,14 @@ registry. Natural question text is interpreted locally and the public topic is
 shown before requesting Gemini. Documents, OCR text, form answers, case data,
 profile information, and conversation history are not sent to Gemini.
 
+The form helper resolves the typed question before making that public request.
+An income question selects reviewed income guidance even when an address field
+was previously selected. Street-only city requests ask for ZIP/state and offer
+an unprefilled USPS lookup link; they do not perform a location search. Unknown
+questions request the relevant form context. These direct clarifications are
+labeled **Anchor · On-device help**, and make no provider call. Field-specific
+public guidance takes precedence over the broader section description.
+
 The source registry covers CalFresh/SNAP, Medi-Cal/Medicaid, Medicare, SSI, SSDI,
 Housing Choice Vouchers, WIC, LIHEAP, unemployment insurance, and Anchor
 navigation. It is reviewed guidance, not a live agency database or all federal

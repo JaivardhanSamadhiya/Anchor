@@ -11,6 +11,7 @@ import {
   type FormContext,
 } from '../domain/program-assistant.js';
 import { renderFormAssistantPanel } from './form-assistance-view.js';
+import { resolveFormQuestion } from '../domain/form-question.js';
 
 interface CurrentForm {
   assistance: FormAssistance;
@@ -206,17 +207,23 @@ export function createFormAssistant(options: FormAssistantOptions) {
     capture(form);
     const context = currentContext();
     if (!context || !question.trim()) return;
-    const help = /proof|document|evidence|comprobante|documento/i.test(question)
-      ? 'documents'
-      : /fill|answer|enter|write|llenar|responder|escribir/i.test(question)
-        ? 'how-to-answer'
-        : 'meaning';
-    const request = createFormContextRequest({ ...context, help }, language(), true);
-    if (!request) return;
+    const resolved = resolveFormQuestion(question, context, language());
     const item: Message = { question };
     messages.push(item);
     if (messages.length > 6) messages.shift();
     question = '';
+    if (resolved.kind === 'local') {
+      Object.assign(item, {
+        answer: resolved.answer,
+        mode: 'device',
+        citations: resolved.citations,
+      });
+      options.redraw();
+      return;
+    }
+    selected = resolved.context;
+    const request = createFormContextRequest(resolved.context, language(), true);
+    if (!request) return;
     const epoch = generation;
     const apply = (response: AssistantResponse) =>
       Object.assign(item, {

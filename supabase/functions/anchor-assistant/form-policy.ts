@@ -40,7 +40,43 @@ interface PublicForm {
 }
 const fields = (ids: string[], label: string, question: string): Record<string, PublicField> =>
   Object.fromEntries(ids.map((id) => [id, { label, question }]));
-const field = (label: string, question: string): PublicField => ({ label, question });
+const field = (
+  label: string,
+  question: string,
+  guidance?: string,
+  guidanceEs?: string,
+): PublicField => ({
+  label,
+  question,
+  ...(guidance ? { guidance } : {}),
+  ...(guidanceEs ? { guidanceEs } : {}),
+});
+// These row IDs also exist in the editable-form registry. Keep the monthly CF 37
+// amount distinct from SAR 7's amount actually received in the report month.
+const cfMonthlyGrossFields = (): Record<string, PublicField> =>
+  Object.fromEntries(
+    [1, 2, 3].map((row) => [
+      `job${row}Gross`,
+      field(
+        `Job ${row} · Monthly gross income`,
+        'Monthly Gross Amount of Income',
+        'Enter the monthly gross income for this job: the amount before deductions, not take-home pay or a single paycheck unless that paycheck covers the whole month. The CF 37 table lists each job separately and asks pay frequency in a separate column. Attach the requested proof. If pay varies or you are unsure how to report the monthly amount, ask the county for help rather than guessing.',
+        'Escriba el ingreso bruto mensual de este trabajo: la cantidad antes de deducciones, no el pago neto ni un solo cheque salvo que corresponda a todo el mes. La tabla CF 37 enumera cada trabajo por separado y pide la frecuencia de pago en otra columna. Adjunte los comprobantes solicitados. Si el pago varía o no sabe cómo informar la cantidad mensual, pida ayuda al condado en vez de adivinar.',
+      ),
+    ]),
+  );
+const sarReportGrossFields = (): Record<string, PublicField> =>
+  Object.fromEntries(
+    [1, 2, 3, 4].map((row) => [
+      `income${row}Gross`,
+      field(
+        `Income ${row} · Gross income in report month`,
+        'Total gross income in report month',
+        'Enter the total gross income actually received from this source during the county’s report month. Gross means before deductions such as taxes, retirement contributions or health premiums; it is not take-home pay. Keep the dates received and pay frequency in their separate columns. Use SAR 7AB or county help for fluctuating income and describe expected changes separately instead of guessing a monthly conversion.',
+        'Escriba el ingreso bruto total recibido de esta fuente durante el mes de informe del condado. Bruto significa antes de deducciones como impuestos, aportaciones de jubilación o primas de salud; no es el pago neto. Anote las fechas recibidas y la frecuencia de pago en sus columnas separadas. Para ingresos variables, use SAR 7AB o pida ayuda al condado; describa los cambios esperados por separado en vez de adivinar una conversión mensual.',
+      ),
+    ]),
+  );
 const cf37Url = 'https://www.cdss.ca.gov/cdssweb/entres/forms/english/cf37.pdf';
 const sar7bUrl =
   'https://www.cdss.ca.gov/Portals/9/Additional-Resources/Forms-and-Brochures/2020/Q-T/SAR7B.pdf?ver=2024-08-27-151418-733';
@@ -66,10 +102,29 @@ export const FORM_KNOWLEDGE: Record<FormId, PublicForm> = {
         fields: {
           caseName: field('Case name', 'Case Name'),
           caseNumber: field('Case number', 'Case Number'),
-          ...fields(
-            ['mailingStreet', 'mailingCity', 'mailingState', 'mailingZip'],
-            'Mailing address',
-            'Mailing address, city, state, ZIP code',
+          mailingStreet: field(
+            'Mailing street address',
+            'MAILING ADDRESS',
+            'Enter the street address where the county can send your mail. Put the city, state and ZIP code in their separate fields. Use your current mailing address, including an apartment or unit when applicable.',
+            'Escriba la dirección donde el condado puede enviarle correo. Anote la ciudad, el estado y el código postal en sus campos separados. Use su dirección postal actual, con el apartamento o unidad si corresponde.',
+          ),
+          mailingCity: field(
+            'Mailing city',
+            'CITY',
+            'Enter the city used in your mailing address, not your county or congressional district. Check a correctly addressed piece of mail or the USPS address lookup if you are unsure. A street name alone does not identify a city reliably; Anchor does not look up your address.',
+            'Escriba la ciudad de su dirección postal, no el condado ni el distrito del Congreso. Si no está seguro, revise una carta dirigida correctamente o la herramienta de direcciones de USPS. El nombre de una calle por sí solo no identifica una ciudad de forma fiable; Anchor no busca su dirección.',
+          ),
+          mailingState: field(
+            'Mailing state',
+            'STATE',
+            'Enter the state for your mailing address. For a California mailing address, the postal abbreviation is CA. Use the address where the county can reach you; do not substitute a county name in this field.',
+            'Escriba el estado de su dirección postal. Para una dirección postal de California, la abreviatura es CA. Use la dirección donde el condado puede contactarle; no escriba el nombre del condado en este campo.',
+          ),
+          mailingZip: field(
+            'Mailing ZIP code',
+            'ZIP CODE',
+            'Enter the ZIP code for your mailing address. Check a correctly addressed piece of mail or the USPS address lookup if you are unsure. Do not guess the ZIP code from a street name or congressional district.',
+            'Escriba el código postal de su dirección postal. Si no está seguro, revise una carta dirigida correctamente o la herramienta de direcciones de USPS. No adivine el código postal a partir del nombre de la calle o del distrito del Congreso.',
           ),
           ...fields(
             ['homePhone', 'cellPhone', 'otherPhone'],
@@ -150,6 +205,7 @@ export const FORM_KNOWLEDGE: Record<FormId, PublicForm> = {
         guidanceEs:
           'Anote cada trabajo de cada persona, incluido el trabajo por cuenta propia, empleador, frecuencia de pago, ingreso mensual bruto antes de deducciones, horas y si continuará. Adjunte los comprobantes pedidos. La tabla de ingresos no laborales pide fuente, si es un pago único o continuo, cantidad y frecuencia; por ejemplo Seguro Social o desempleo. Explique cambios conocidos esperados en los próximos seis meses y adjunte comprobantes disponibles. Consulte al condado sobre cantidades inciertas o comprobantes que faltan.',
         fields: {
+          ...cfMonthlyGrossFields(),
           ...fields(
             ['q7', 'jobDetails'],
             'Job income',
@@ -255,10 +311,17 @@ export const FORM_KNOWLEDGE: Record<FormId, PublicForm> = {
         guidanceEs:
           'Use los meses de informe y envío indicados por el condado. El mes de informe es el anterior al mes de envío; no lo sustituya por el mes actual. Escriba los datos de contacto en el formulario. Si no tiene dirección permanente, revise las opciones postales y acuerde el servicio con el condado o correo primero. Siga los símbolos del programa y consulte al condado sobre períodos o fechas inciertas.',
         fields: {
-          ...fields(
-            ['reportMonth', 'submitMonth'],
-            'Report period',
-            'Write your submit month here; use the report month requested by the county.',
+          reportMonth: field(
+            'Report month',
+            'Report/Data Month',
+            'Use the report/data month printed by the county, not today’s month. SAR 7AB defines it as the month before the submit month; the information reported should be from that report month. If the county’s printed period is missing or unclear, ask the county to confirm it before entering an answer.',
+            'Use el mes de informe indicado por el condado, no el mes actual. SAR 7AB lo define como el mes anterior al de envío; la información debe corresponder a ese mes de informe. Si falta el período impreso o no está claro, pida al condado que lo confirme antes de responder.',
+          ),
+          submitMonth: field(
+            'Submit month',
+            'Write your submit month here',
+            'Use the submit month printed by the county: the month you must provide the SAR 7 to the county. This is different from the report/data month, which is the preceding month. Follow the county’s submission instructions and confirm any unclear due date with the county.',
+            'Use el mes de envío indicado por el condado: el mes en que debe entregar el SAR 7. Es distinto del mes de informe, que es el mes anterior. Siga las instrucciones de envío y confirme con el condado cualquier fecha de entrega que no esté clara.',
           ),
           caseName: field('Case name', 'Case Name'),
           caseNumber: field('Case number', 'Case Number'),
@@ -290,6 +353,7 @@ export const FORM_KNOWLEDGE: Record<FormId, PublicForm> = {
         guidanceEs:
           'Use el mes indicado por el condado. Anote persona, cambio y fecha, empleador o fuente, frecuencia de pago, total bruto recibido antes de deducciones, fechas de pago y horas si trabaja. Los ingresos laborales vienen del trabajo; otros incluyen Seguro Social o desempleo. Adjunte comprobantes como recibos, declaraciones del empleador, registros propios o cartas de beneficios. Hay una opción para pedir ayuda con comprobantes. Para ingresos variables o cambios esperados, siga SAR 7AB o consulte al condado.',
         fields: {
+          ...sarReportGrossFields(),
           incomeDetails: field(
             'Income received and changes',
             'Did anyone in your household get earned or unearned income for your report month, or does anyone expect to have a change in earned or unearned income within the next six months?',
@@ -297,6 +361,8 @@ export const FORM_KNOWLEDGE: Record<FormId, PublicForm> = {
           incomeProof: field(
             'Income proof',
             'Did you attach proof for the income change(s) listed above?',
+            'For income reported before deductions, follow the SAR 7 proof instructions. SAR 7AB gives earned-income examples including check stubs, copies of checks, employer statements, and earnings records for self-employment. Proof of a change can include an employer letter or a signed written statement from you. If proof is unavailable, select the missing-proof/help option and ask the county what alternative proof it accepts; these examples do not guarantee acceptance for your case.',
+            'Para los ingresos antes de deducciones, siga las instrucciones de comprobantes de SAR 7. SAR 7AB menciona recibos de pago, copias de cheques, declaraciones del empleador y registros de ganancias por cuenta propia. Un cambio puede documentarse con una carta del empleador o una declaración firmada por usted. Si falta un comprobante, marque la opción para pedir ayuda y consulte al condado qué alternativa acepta; los ejemplos no garantizan la aceptación para su caso.',
           ),
         },
       },
@@ -433,7 +499,10 @@ export function publicFormKnowledge(context: FormContext, language: 'en' | 'es' 
     section: section.title,
     question: selected?.question || section.question,
     task: FORM_HELP_LABELS[valid.help],
-    guidance: language === 'es' ? section.guidanceEs : section.guidance,
+    guidance:
+      language === 'es'
+        ? selected?.guidanceEs || section.guidanceEs
+        : selected?.guidance || section.guidance,
     sources: form.sources.map((item) => ({ ...item })),
   };
 }
