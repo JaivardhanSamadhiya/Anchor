@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "modelVersion": "anchor-documents-2026-10-12-v1",
   "reviewedAt": "2026-10-12",
-  "modelSha256": "bb390fa808799bcfc76f30b0c49ccde43d93334f2f2f7310f2956eb921035826",
+  "modelSha256": "6c601c7b81f996299cc6862b21e59f88397259c5ffe291f55956b52791c0f52a",
   "corpusSha256": "e24d29da211c1bba4eefffeec07d0b9fcaddae1f2946c1c8304e3e9aa81ed8a8",
   "scope": "Separately authored English/Spanish fictional short excerpts; not real-world or user-study evidence",
   "trainingExamples": 84,

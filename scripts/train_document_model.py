@@ -121,7 +121,8 @@ def train(corpus_path: Path, output: Path) -> dict:
     model["weights"] = [[round(value, 8) for value in row] for row in model["weights"]]
     model["bias"] = [round(value, 8) for value in model["bias"]]
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(model, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    # Canonical bytes keep artifact hashes identical on Windows and Linux.
+    output.write_bytes((json.dumps(model, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
     return model
 
 

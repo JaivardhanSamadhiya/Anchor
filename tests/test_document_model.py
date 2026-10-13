@@ -13,6 +13,12 @@ from evaluate_document_model import evaluate, keyword_baseline
 
 
 class DocumentModelTests(unittest.TestCase):
+    def test_public_model_artifacts_use_portable_lf_bytes(self):
+        for path in [CORPUS, MODEL, ROOT / "web/models/evaluation.json"]:
+            raw = path.read_bytes()
+            self.assertNotIn(b"\r\n", raw, path.name)
+            self.assertTrue(raw.endswith(b"\n"), path.name)
+
     def test_artifact_matches_fictional_corpus(self):
         model = json.loads(MODEL.read_text(encoding="utf-8"))
         self.assertEqual(model["provenance"]["corpusSha256"], sha256(CORPUS.read_bytes()).hexdigest())

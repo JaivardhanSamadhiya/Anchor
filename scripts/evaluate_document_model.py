@@ -114,7 +114,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=ROOT / "web/models/evaluation.json")
     args = parser.parse_args()
     report = evaluate(args.corpus, args.model)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    args.output.write_bytes((json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     print(f"Held-out fictional excerpts: {report['correct']}/{report['testExamples']} correct. "
           f"Supported suggestion coverage: {report['coveredSupportedExamples']}/{report['supportedExamples']}. "
           f"Abstention checks: {report['correctAbstentions']}/{report['abstentionExamples']}. "
