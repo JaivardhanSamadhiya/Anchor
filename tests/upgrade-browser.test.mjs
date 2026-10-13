@@ -340,9 +340,39 @@ test(
             .evaluateAll((links) => links.map((link) => link.href))
         ).every((url) => url.startsWith('https://')),
       );
-      await page.locator('#language').selectOption('es');
       await page.locator('#knowledge-query').fill('renovación');
-      await page.locator('.knowledge-card').first().waitFor();
+      await page.waitForFunction(() => document.querySelectorAll('.knowledge-card').length === 0);
+      await page.locator('#language').selectOption('es');
+      // Language changes save asynchronously and then render again. Wait for
+      // the complete Spanish filtered result, rather than any earlier card.
+      await page.waitForFunction(() => {
+        const cards = [...document.querySelectorAll('.knowledge-card')];
+        return (
+          document.querySelector('#knowledge-query')?.value === 'renovación' &&
+          document.querySelector('#knowledge-program')?.value === 'calfresh' &&
+          document.querySelector('#knowledge-county')?.value === 'san-mateo' &&
+          document
+            .querySelector('label[for="knowledge-query"]')
+            ?.textContent.includes('Buscar orientación') &&
+          cards.length > 0 &&
+          cards.every((card) => /renovación/i.test(card.textContent))
+        );
+      });
+      assert.equal(
+        await page.locator('#knowledge-query').inputValue(),
+        'renovación',
+        'language changes preserve the local library query',
+      );
+      assert.equal(
+        await page.locator('#knowledge-program').inputValue(),
+        'calfresh',
+        'language changes preserve the program filter',
+      );
+      assert.equal(
+        await page.locator('#knowledge-county').inputValue(),
+        'san-mateo',
+        'language changes preserve the jurisdiction filter',
+      );
       assert.ok(
         (await page.locator('.knowledge-card').allTextContents()).every((text) =>
           /renovación/i.test(text),

@@ -44,7 +44,11 @@ import { getCalendarCandidates, createCalendarEvent } from './google-calendar.js
 import { createCalendarClient } from './google-calendar-client.js';
 import { createReadinessUI, documentModel } from './readiness-ui.js';
 import { createPacketUI } from './packet-ui.js';
-import { renderKnowledgeLibrary, updateKnowledgeResults } from './knowledge-ui.js';
+import {
+  renderKnowledgeLibrary,
+  updateKnowledgeResults,
+  resetKnowledgeLibrary,
+} from './knowledge-ui.js';
 import { inspectDocumentText } from './document-intelligence.js';
 import { locateSource } from './source-locations.js';
 import { localizeFormAssistance } from './spanish-form-guide.js';
@@ -2566,6 +2570,7 @@ async function init() {
       render();
     },
     onReset: (saved) => {
+      resetKnowledgeLibrary();
       invalidateWorkspaceTasks();
       if (
         modal.open &&
@@ -2592,6 +2597,7 @@ async function init() {
       const reconnected =
         accountInfo.authenticated && !accountInfo.sessionVerified && snapshot.sessionVerified;
       if (accountInfo.user?.id !== snapshot.user?.id) {
+        resetKnowledgeLibrary();
         invalidateWorkspaceTasks();
         calendarClient.clear();
         assistant.reset();
