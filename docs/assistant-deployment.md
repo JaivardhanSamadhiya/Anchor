@@ -73,16 +73,22 @@ assistant anonymous: `handler.ts` verifies the exact Bearer token through
 Supabase Auth, rejects anonymous users, and calls the quota RPC as that user
 before contacting Gemini. Do not remove these checks.
 
-The function entrypoint imports `handler.ts` and `program-policy.ts` from the
-same directory. Deploy all three files. If using the dashboard editor instead of
-the CLI, preserve those module paths and set **Verify JWT** off for this function.
+The function entrypoint imports the handler, program/form policies, and public
+knowledge modules from the same directory. Deploy the complete
+`supabase/functions/anchor-assistant/` directory; the CLI bundles its imports.
+If using the dashboard editor instead of the CLI, preserve every module path and
+set **Verify JWT** off for this function.
+
+The browser and backend share the reviewed source release `2026-10-12`. Deploy
+both the assistant and the Pages artifact when this source version changes.
+Mismatched responses are rejected rather than displayed with stale citations.
 
 ## 4. Verify from Anchor
 
 Sign in, open the assistant, and select an example public-program question. Cloud
 AI requires the adult-use confirmation. Check the response badge:
 
-- **Gemini** means a real API response passed the source and navigation checks.
+- **Anchor AI** means a real Gemini API response passed the source and navigation checks.
 - **Source guide** means Gemini is unavailable, not enabled, or not selected.
 
 Ask about missing CalFresh proof or finding the Calendar page. The assistant
@@ -92,7 +98,9 @@ require the user's click; model output never edits the case or submits anything.
 ## Cloud input boundary
 
 Only these structured fields reach the function: `program`, `questionId`,
-`focus`, `language`, `adultConfirmed`, and `destination` for navigation. The
+`focus`, `language`, `adultConfirmed`, optional `jurisdiction`, `destination` for
+navigation, and optional reviewed `formContext`. Form context contains only
+validated `formId`, `sectionId`, `fieldId`, and public `help` identifiers. The
 backend rejects all other fields and reconstructs the public prompt from its own
 registry. Natural question text is interpreted locally and the public topic is
 shown before requesting Gemini. Documents, OCR text, form answers, case data,
@@ -103,6 +111,13 @@ Housing Choice Vouchers, WIC, LIHEAP, unemployment insurance, and Anchor
 navigation. It is reviewed guidance, not a live agency database or all federal
 programs. The registry intentionally excludes changing dollar limits and
 individual deadlines; the official agency and actual notice remain authoritative.
+
+The versioned library contains 32 bilingual passages from 18 official sources.
+BM25 ranking and reviewed topic/section weights retrieve public guidance before
+the prompt is assembled. County filters prevent one county's operational
+instructions from appearing under the other county. Browsing and searching the
+local library do not call Gemini. See [knowledge maintenance](KNOWLEDGE_LIBRARY.md)
+for offline validation, public fingerprint reports, and manual review procedures.
 
 The free Gemini service may use submitted public prompts and responses for
 product improvement and human review. Current terms require adult use and forbid
@@ -115,7 +130,8 @@ keeps personal work outside this cloud boundary. Check the
 ## Automated checks
 
 ```text
-node --test tests/program-assistant.test.mjs
+node --test tests/program-assistant.test.mjs tests/knowledge-library.test.mjs
+npm run knowledge:check
 ```
 
 These tests run the TypeScript sources, simulated HTTP transport, and the real

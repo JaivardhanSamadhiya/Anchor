@@ -27,11 +27,12 @@
     <main class="legal-main" id="main">
       <div class="legal-eyebrow">Your information, explained</div>
       <h1>Privacy policy</h1>
-      <p class="legal-date">Last updated: October 10, 2026</p>
+      <p class="legal-date">Last updated: October 12, 2026</p>
       <p class="legal-lead">
         Anchor helps you read benefit notices, check your next steps, and keep your progress
-        together. This policy describes Google sign-in, optional account storage, guided form
-        preparation, the public-program assistant, and optional Google Calendar reminders.
+        together. This policy describes local document checks, guided forms and appointment packets,
+        Google sign-in, optional account storage, the public-program assistant, and optional Google
+        Calendar reminders.
       </p>
       <div class="legal-summary" aria-label="Privacy at a glance">
         <div>
@@ -60,10 +61,11 @@
         <h2>Information you choose to add</h2>
         <p>
           Your workspace may contain original PDFs and images, extracted notice text, dates and
-          requests you review, preparation progress, form draft answers and notes, attached forms,
-          submission records, receipts, agency-response notes, and language and county preferences.
-          Documents and form answers can contain personal information; add only records you are
-          authorized to use.
+          requests you review, page coordinates, OCR quality indicators, suggested document facts,
+          facts you confirm, file hashes for duplicate checks, preparation progress, form draft
+          answers and notes, supporting documents, attached forms, submission records, receipts,
+          agency-response notes, and language and county preferences. Documents and form answers can
+          contain personal information; add only records you are authorized to use.
         </p>
         <p>
           Anchor uses this information to show source-linked notice details, organize tasks and
@@ -115,7 +117,24 @@
         <p>
           Anchor caches website and PDF/OCR reader assets for offline use and stores interface
           preferences locally. The current app has no advertising or analytics tracking code. Notice
-          content and form answers are not sent to an AI or remote document-processing service.
+          content and form answers are not sent to a remote AI or document-processing service.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Local document intelligence and evidence checks</h2>
+        <p>
+          English and Spanish OCR, document classification, source-location matching, and paperwork
+          comparisons run on your device. A small model trained on fictional examples suggests
+          document categories; explicit rules locate candidate periods and amounts. Anchor asks you
+          to check the original and confirm any facts used in comparisons. The checks do not
+          authenticate documents or establish agency acceptance.
+        </p>
+        <p>
+          Supporting-file text, coordinates, model suggestions, and your confirmed facts follow the
+          same local or private-account storage choices as the notice. File hashes help find
+          duplicate contents inside your workspace. They are not published or added to a public
+          training set. The public model and evaluation contain fictional examples only; the app
+          does not train the model on your records.
         </p>
       </section>
       <section class="legal-section">
@@ -126,21 +145,43 @@
           including supported table rows, appear on the actual form as you type. The full editable
           PDF can be downloaded; signatures and signing dates remain blank. Earlier freeform notes
           remain available for you to transfer. Other forms offer notes and a local preview. Saving
-          a draft follows the workspace storage choices above and does not
-          submit it to an agency.
+          a draft follows the workspace storage choices above and does not submit it to an agency.
+        </p>
+      </section>
+      <section class="legal-section">
+        <h2>Appointment packets and translated guidance</h2>
+        <p>
+          Anchor creates appointment PDFs locally from the notices, questions, supporting files, and
+          optional submission history you select. Files are excluded unless selected. The download
+          can contain personal information; review its contents before sharing it. Packet creation
+          does not send the PDF to an agency, Gemini, or another user. Downloaded copies are outside
+          Anchor's deletion controls.
+        </p>
+        <p>
+          Official editable forms remain separate unsigned downloads so their fields are preserved.
+          Spanish guidance and packet summaries are Anchor translations; original notice quotes and
+          official PDFs retain their source language. Your questions and selected documents are not
+          translated by a cloud service.
         </p>
       </section>
       <section class="legal-section">
         <h2>Anchor assistant</h2>
         <p>
           The source guide works without cloud AI. Your typed question is interpreted locally into a
-          predefined public topic. Optional Anchor AI uses Google's Gemini API. Only the selected program, public question,
-          focus, language, navigation destination, and adult-use confirmation go to Anchor's
-          authenticated Supabase function. Form help can also send reviewed form, section and
-          question identifiers with a public help category. Highlighted text stays on your device.
-          The function builds a prompt from public sources. Raw typed
-          questions, conversation history, notice text, uploads, form answers, account profile
-          information, and personal workspace data are not sent to Gemini.
+          predefined public topic. Optional Anchor AI uses Google's Gemini API. Only the selected
+          program, public question, focus, language, optional county jurisdiction, navigation
+          destination, and adult-use confirmation go to Anchor's authenticated Supabase function.
+          Form help can also send reviewed form, section and question identifiers with a public help
+          category. Highlighted text stays on your device. The function retrieves reviewed public
+          passages from a versioned official-source library and builds a prompt from those sources.
+          Raw typed questions, conversation history, notice text, uploads, form answers, account
+          profile information, and personal workspace data are not sent to Gemini.
+        </p>
+        <p>
+          Searching the source library happens locally. A typed search query does not go to Gemini.
+          The library contains public guidance and source metadata, not residents' documents. Source
+          review dates describe when Anchor's summaries were checked; the linked agency pages remain
+          authoritative.
         </p>
         <p>
           Cloud AI requires sign-in and confirmation that you are at least 18. It is available only

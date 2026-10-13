@@ -40,6 +40,8 @@ jobs:
         run: npm run check
       - name: Check source formatting
         run: npm run format:check
+      - name: Validate the reviewed bilingual knowledge corpus
+        run: npm run knowledge:check
       - name: Build an isolated browser-test artifact
         run: npm run build
         env:
@@ -59,8 +61,8 @@ jobs:
           ANCHOR_BASE_PATH: /Anchor/
           ANCHOR_BROWSER_TEST_URL: http://127.0.0.1:4317/Anchor/
           ANCHOR_PLAYWRIGHT_MODULE: file://${{ github.workspace }}/node_modules/playwright/index.mjs
-      - name: Test audit failure cases
-        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Verify model reproducibility, source maintenance, and audit failures
+        run: npm run test:python
       - name: Build the release with public account settings
         run: npm run build
         env:

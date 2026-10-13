@@ -58,11 +58,11 @@ In GitHub **Settings → Secrets and variables → Actions → Variables**, crea
 repository variables. These are public identifiers deliberately embedded in the
 browser application, so use **Variables**, not Secrets.
 
-| Variable | Value |
-| --- | --- |
-| `PUBLIC_SUPABASE_URL` | Your project's HTTPS origin, such as `https://your-project.supabase.co` |
-| `PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Your publishable key |
-| `PUBLIC_GOOGLE_CLIENT_ID` | Your Web client ID ending `.apps.googleusercontent.com` |
+| Variable                          | Value                                                                   |
+| --------------------------------- | ----------------------------------------------------------------------- |
+| `PUBLIC_SUPABASE_URL`             | Your project's HTTPS origin, such as `https://your-project.supabase.co` |
+| `PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Your publishable key                                                    |
+| `PUBLIC_GOOGLE_CLIENT_ID`         | Your Web client ID ending `.apps.googleusercontent.com`                 |
 
 The workflow supplies `PUBLIC_BASE_PATH=/Anchor/`. If you rename the repository,
 update that value and the matching website addresses. Changes to variables need a
@@ -74,6 +74,12 @@ content security policy.
 
 - Open the Pages address in a clean browser profile. Complete and replay the guide.
 - Try the fictional practice notices, the continuity view, and the local PDF reader.
+- Try the wrong-month case in **How we test**. Confirm the supporting document's
+  actual facts, check the reporting-period finding, and download a packet containing
+  only selected fictional files. The official editable form remains separate.
+- Switch to Spanish and verify notice reading, guided fields, packet summaries,
+  and the source library. Original PDF language stays unchanged. Prepare readers
+  online before checking actual offline imports.
 - Sign in with Google. Add a fictional personal notice, confirm a date, prepare an
   item, and attach a fictional receipt. Wait for the saved status.
 - Sign in to the same account in another profile/device. Verify the saved workspace
@@ -93,6 +99,8 @@ Use Node 24 and Python 3.11 or newer:
 ```sh
 npm ci
 npm run typecheck
+npm run check
+npm run knowledge:check
 npm run build
 npm run dev:static
 ```
@@ -103,7 +111,7 @@ For an exact repository-path preview, set `ANCHOR_SERVE_ROOT=dist/pages` and
 no account credentials are required to test the device-only application.
 
 ```sh
-python -m unittest discover -s tests -p 'test_*.py'
+npm run test:python
 python scripts/audit_sources.py --site dist/pages
 ```
 

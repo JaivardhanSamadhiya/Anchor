@@ -274,10 +274,12 @@ test('real browser UI: source confirmation, receipt handoff, and prepared reader
     assert.equal(await page.locator('[data-action="confirm-plan"]').isDisabled(), true);
     await page.locator('.fact [data-action="source"]').first().click();
     assert.match(await page.locator('.source-line.highlight').textContent(), /October 24, 2026/);
-    const dates = await page.locator('input[data-confirm]').count();
-    assert.ok(dates > 0, 'A source-linked deadline must be offered for review');
-    for (let checked = 0; checked < dates; checked++) {
-      await page.locator('input[data-confirm]:not(:checked)').first().check();
+    const dateIds = await page.locator('input[data-confirm]').evaluateAll(inputs => inputs.map(input => input.dataset.confirm));
+    assert.ok(dateIds.length > 0, 'A source-linked deadline must be offered for review');
+    for (let checked = 0; checked < dateIds.length; checked++) {
+      // Keep the locator attached to the same date after the app rerenders;
+      // :not(:checked) stops matching as soon as the intended action succeeds.
+      await page.locator(`input[data-confirm="${dateIds[checked]}"]`).check();
       await page.waitForFunction(count => document.querySelectorAll('input[data-confirm]:checked').length === count, checked + 1);
     }
     await page.locator('[data-action="confirm-plan"]').click();

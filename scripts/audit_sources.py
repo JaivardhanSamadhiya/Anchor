@@ -23,10 +23,13 @@ READER_LICENSES = (
     "pdfjs-dist-LICENSE.txt", "tesseract.js-LICENSE.txt",
     "tesseract.js-core-LICENSE.txt", "eng-Apache-2.0-LICENSE.txt",
     "eng-traineddata.txt",
+    "spa-traineddata.txt",
 )
 REQUIRED_MODULES = (
     "app.js", "account.js", "platform.js", "engine.js", "guide.js",
     "continuity.js", "continuity-view.js", "supabase-transport.js", "config.js",
+    "readiness-ui.js", "packet-ui.js", "knowledge-ui.js", "document-intelligence.js",
+    "evidence-readiness.js", "source-locations.js", "appointment-packet.js", "spanish-form-guide.js",
 )
 ACCOUNT_LICENSES = (
     "supabase-js-LICENSE.txt", "supabase-auth-js-LICENSE.txt",
@@ -325,6 +328,14 @@ def audit(site: Path, repository: Path, today: date | None = None) -> dict:
                     errors.append("OCR language file checksum differs from reader manifest.")
             else:
                 errors.append("Missing offline OCR language data.")
+            spanish = site / "vendor/lang/spa.traineddata.gz"
+            if spanish.is_file():
+                checksum = hashlib.sha256(spanish.read_bytes()).hexdigest()
+                report["spanish_reader_checksum_verified"] = checksum == contents.get("spanishLanguageSha256")
+                if not report["spanish_reader_checksum_verified"]:
+                    errors.append("Spanish OCR language file checksum differs from reader manifest.")
+            else:
+                errors.append("Missing offline Spanish OCR language data.")
         except (ValueError, KeyError):
             errors.append("vendor/manifest.json is invalid.")
     else:
