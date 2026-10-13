@@ -1,7 +1,7 @@
 /** Interpret a resident's question on this device before considering a public
  * AI request. Never substitute an unrelated selected field for an unknown
  * question, and never return the question text as a cloud request parameter. */
-import { parseFormContext, type FormContext } from './program-assistant.js';
+import { FORM_KNOWLEDGE, parseFormContext, type FormContext } from './program-assistant.js';
 
 export type FormQuestionResolution =
   | { kind: 'request'; context: FormContext }
@@ -99,8 +99,24 @@ export function resolveFormQuestion(
     return selected ? { kind: 'request', context: selected } : null;
   };
   let resolved: FormQuestionResolution | null = null;
+  const questionNumber = text.match(/\b(?:question|q|pregunta)\s*(\d{1,2}[a-z]?)\b/);
+  if (questionNumber) {
+    const fieldId = `q${questionNumber[1]}`;
+    for (const [sectionId, section] of Object.entries(FORM_KNOWLEDGE[context.formId].sections)) {
+      if (Object.hasOwn(section.fields, fieldId)) {
+        const match = choose(sectionId, [fieldId]);
+        if (match) return match;
+      }
+    }
+    return local(
+      t(
+        'Which wording in that numbered question is unclear? Select its Ask Anchor button or choose the relevant question from the list. I could not identify a reviewed field for that number.',
+        '¿Qué texto de esa pregunta numerada no está claro? Usa su botón Pregunta a Anchor o elige la pregunta de la lista. No pude identificar un campo revisado para ese número.',
+      ),
+    );
+  }
   if (
-    /\b(?:gross|net|take home|before deductions|before taxes|after taxes|bruto|brutos|neto|netos|deducciones|impuestos)\b/.test(
+    /\b(?:gross|net|take home|before deductions|after deductions|before taxes|after taxes|bruto|brutos|neto|netos|antes de impuestos|despues de impuestos)\b/.test(
       text,
     )
   )
@@ -142,21 +158,41 @@ export function resolveFormQuestion(
     )
   )
     resolved = choose('household', context.formId === 'cf37' ? ['q1'] : ['householdChanged']);
-  else if (/\b(?:mailing|address|city|zip|postal|direccion|ciudad|codigo postal)\b/.test(text))
+  else if (
+    /\b(?:mailing|address|city|zip|state|postal|direccion|ciudad|estado|codigo postal)\b/.test(text)
+  )
     resolved = choose(
       context.formId === 'cf37' ? 'identity' : 'report',
       context.formId === 'cf37'
-        ? [/\bcity|ciudad\b/.test(text) ? 'mailingCity' : 'mailingStreet']
+        ? [
+            /\b(?:zip|codigo postal)\b/.test(text)
+              ? 'mailingZip'
+              : /\b(?:state|estado)\b/.test(text)
+                ? 'mailingState'
+                : /\b(?:city|ciudad)\b/.test(text)
+                  ? 'mailingCity'
+                  : 'mailingStreet',
+          ]
         : ['contactDetails'],
     );
-  else if (/\b(?:rent|mortgage|utility|utilities|alquiler|hipoteca|servicios)\b/.test(text))
+  else if (
+    /\b(?:property taxes|home insurance|rent|mortgage|utility|utilities|alquiler|hipoteca|servicios|impuestos de propiedad|seguro del hogar)\b/.test(
+      text,
+    )
+  )
     resolved = choose(
       context.formId === 'cf37' ? 'housing' : 'expenses',
-      context.formId === 'cf37' ? ['rent'] : ['expenseDetails'],
+      context.formId === 'cf37'
+        ? [
+            /property taxes|home insurance|impuestos de propiedad|seguro del hogar/.test(text)
+              ? 'propertyCosts'
+              : 'rent',
+          ]
+        : ['expenseDetails'],
     );
   else if (
-    /^(?:explain (?:this|the question)|what does (?:this|it)|what is (?:this|it)|how (?:do|can|should) i (?:answer|fill|complete|write)|what (?:should|do) i (?:enter|write)|which (?:proof|documents)|explica (?:esta|esto)|que significa (?:esta|esto)|como (?:respondo|completo|lleno)|que (?:escribo|comprobantes))\b/.test(
-      text,
+    /^(?:explain (?:this(?: question|field|part)?|the (?:selected|highlighted) (?:question|field|part))|what does (?:this(?: question|field|part)?|it) mean|what is this(?: question|field|part)?|how (?:do|can|should) i (?:answer|fill|complete|write)(?: (?:this(?: question|field|part)?|it|here))?|what (?:should|do) i (?:enter|write)(?: here| for this(?: question|field|part)?)?|which (?:proof|documents)(?: are needed(?: here| for this(?: question|field|part)?)?)?|explica (?:esta pregunta|este campo|esto)|que significa (?:esta pregunta|este campo|esto)|como (?:respondo|completo|lleno)(?: esta pregunta| este campo| esto)?|que escribo(?: aqui| en este campo)?)$/.test(
+      normalize(question.replace(/^[¿¡]/, '').split(/[?.!]/)[0]),
     )
   ) {
     const selected = parseFormContext({ ...context, help });

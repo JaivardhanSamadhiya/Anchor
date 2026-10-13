@@ -35,3 +35,17 @@ test('Spanish address and income questions preserve the same private boundary',(
   assert.equal(address.kind,'local');assert.match(address.answer,/código postal y estado/);assert.doesNotMatch(address.answer,/123|Ficticia/);
   const income=resolveFormQuestion('¿El ingreso bruto es antes de impuestos?',contact,'es');assert.equal(income.kind,'request');assert.equal(income.context.sectionId,'income');
 });
+test('public ZIP and state definitions target their own fields',()=>{
+  assert.equal(resolveFormQuestion('What does ZIP mean on this form?',contact,'en').context.fieldId,'mailingZip');
+  assert.equal(resolveFormQuestion('What does state mean on this form?',contact,'en').context.fieldId,'mailingState');
+});
+test('numbered questions and explicit unrelated subjects cannot silently inherit a mailing field',()=>{
+  const numbered=resolveFormQuestion('How do I answer question 12?',contact,'en');
+  assert.equal(numbered.kind,'request');assert.equal(numbered.context.fieldId,'q12');
+  for(const question of ['What does this eviction notice mean?','How do I answer the question about a traffic ticket?'])assert.equal(resolveFormQuestion(question,contact,'en').kind,'local');
+  assert.equal(resolveFormQuestion('How do I answer this question?',contact,'en').context.fieldId,'mailingStreet');
+});
+test('property taxes are housing expenses rather than gross wages',()=>{
+  const reply=resolveFormQuestion('How do I report my property taxes?',contact,'en');
+  assert.equal(reply.kind,'request');assert.equal(reply.context.sectionId,'housing');assert.equal(reply.context.fieldId,'propertyCosts');
+});
