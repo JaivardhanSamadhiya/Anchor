@@ -10,9 +10,17 @@ test('a street-only city request asks for missing location information without a
   assert.doesNotMatch(reply.answer,/123|Fictional|San Jose|recertification/i);
   assert.equal(reply.citations[0].url,'https://tools.usps.com/go/ZipLookup.htm');
 });
-test('a supplied ZIP does not imply a verified street address or silently become a provider input',()=>{
+test('a supplied ZIP produces only a postal lookup identifier, never the full private message',()=>{
   const reply = resolveFormQuestion('What city is my address in? The ZIP is 00000.',contact,'en');
-  assert.equal(reply.kind,'local'); assert.match(reply.answer,/cannot verify/);assert.doesNotMatch(JSON.stringify(reply),/00000/);
+  assert.deepEqual(reply,{kind:'postal-lookup',zip:'00000'});
+});
+test('city follow-ups accept only explicit or bare ZIP codes and preserve leading zeroes',()=>{
+  assert.deepEqual(resolveFormQuestion('My zipcode is 95124, I am not sure about the mailing city.',contact,'en',true),{kind:'postal-lookup',zip:'95124'});
+  assert.deepEqual(resolveFormQuestion('02108',contact,'en',true),{kind:'postal-lookup',zip:'02108'});
+  assert.deepEqual(resolveFormQuestion('95124-1234',contact,'en',true),{kind:'postal-lookup',zip:'95124'});
+  assert.notEqual(resolveFormQuestion('My case number is 12345.',contact,'en',true).kind,'postal-lookup');
+  assert.notEqual(resolveFormQuestion('I live at 12345 Fictional Road, what is my city?',contact,'en').kind,'postal-lookup');
+  assert.notEqual(resolveFormQuestion('Should I use ZIP 95124 or 95008?',contact,'en',true).kind,'postal-lookup');
 });
 test('public city meaning is a relevant mailing-city explanation rather than a location request',()=>{
   const reply = resolveFormQuestion('What does city mean in this form?',contact,'en');
@@ -48,4 +56,8 @@ test('numbered questions and explicit unrelated subjects cannot silently inherit
 test('property taxes are housing expenses rather than gross wages',()=>{
   const reply=resolveFormQuestion('How do I report my property taxes?',contact,'en');
   assert.equal(reply.kind,'request');assert.equal(reply.context.sectionId,'housing');assert.equal(reply.context.fieldId,'propertyCosts');
+});
+test('a proposed mailing city without a ZIP still asks for the missing ZIP',()=>{
+  const reply=resolveFormQuestion('I live at 123 Fictional Street. Is San Jose my mailing city?',contact,'en');
+  assert.equal(reply.kind,'local');assert.equal(reply.awaitingPostalCity,true);assert.match(reply.answer,/ZIP code and state/);
 });

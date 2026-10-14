@@ -108,8 +108,15 @@ profile information, and conversation history are not sent to Gemini.
 
 The form helper resolves the typed question before making that public request.
 An income question selects reviewed income guidance even when an address field
-was previously selected. Street-only city requests ask for ZIP/state and offer
-an unprefilled USPS lookup link; they do not perform a location search. Unknown
+was previously selected. Street-only city requests ask for ZIP/state. An explicit
+ZIP or a bare ZIP in that pending dialogue triggers a bounded public place lookup
+at `https://api.zippopotam.us/us/<ZIP>`. Only five digits leave the browser; no
+street, chat history, form answers, credentials, or referrer are included. Results
+are attributed to Zippopotam.us/GeoNames and labeled **Anchor · ZIP lookup**,
+not AI or official USPS address verification. Multiple alternatives remain
+visible; unavailable, invalid, offline, and cancelled requests do not invent a
+city or fall back to Gemini. The pending dialogue resets with the form/account.
+An unprefilled USPS link supports complete-address verification. Unknown
 questions request the relevant form context. These direct clarifications are
 labeled **Anchor · On-device help**, and make no provider call. Field-specific
 public guidance takes precedence over the broader section description.

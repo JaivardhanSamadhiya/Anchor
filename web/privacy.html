@@ -74,6 +74,20 @@
         </p>
       </section>
       <section class="legal-section">
+        <h2>Optional ZIP-code lookup</h2>
+        <p>When you ask for a city associated with a US ZIP code, Anchor sends only
+          that five-digit ZIP to <a href="https://docs.zippopotam.us/docs/getting-started/" target="_blank" rel="noopener noreferrer">Zippopotam.us</a>,
+          a public service using <a href="https://www.geonames.org/postal-codes/" target="_blank" rel="noopener noreferrer">GeoNames postal data</a>.
+          The provider also receives ordinary connection information such as your IP address.
+          The request omits credentials and referrer and does not include your street address,
+          conversation, notice, or form answers. Anchor does not persist a ZIP-lookup history.</p>
+        <p>ZIP-associated city/state results do not verify a complete street address or county
+          eligibility. Anchor identifies the source, shows multiple returned places without
+          choosing one, and offers the official USPS lookup. This service needs internet access;
+          failure does not produce a guessed city. Closing the form or switching accounts clears
+          the pending dialogue and cancels a pending request.</p>
+      </section>
+      <section class="legal-section">
         <h2>Google sign-in information</h2>
         <p>
           If you choose Google sign-in, Google and Supabase Auth provide the account identifier,

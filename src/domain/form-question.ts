@@ -5,7 +5,13 @@ import { FORM_KNOWLEDGE, parseFormContext, type FormContext } from './program-as
 
 export type FormQuestionResolution =
   | { kind: 'request'; context: FormContext }
-  | { kind: 'local'; answer: string; citations: { title: string; url: string }[] };
+  | { kind: 'postal-lookup'; zip: string }
+  | {
+      kind: 'local';
+      answer: string;
+      citations: { title: string; url: string }[];
+      awaitingPostalCity?: boolean;
+    };
 const USPS_LOOKUP = 'https://tools.usps.com/go/ZipLookup.htm';
 const normalize = (text: string) =>
   text
@@ -20,6 +26,7 @@ export function resolveFormQuestion(
   question: string,
   context: FormContext,
   language: 'en' | 'es',
+  awaitingPostalCity = false,
 ): FormQuestionResolution {
   const text = normalize(question.slice(0, 500));
   const t = (en: string, es: string) => (language === 'es' ? es : en);
@@ -37,14 +44,48 @@ export function resolveFormQuestion(
           },
         ]
       : [],
+    ...(postal ? { awaitingPostalCity: true } : {}),
   });
+  // Only explicitly labelled ZIPs or a bare ZIP in a pending city dialogue
+  // become lookups. A five-digit house/case number is never treated as a ZIP.
+  const labelled = [
+    ...text.matchAll(
+      /\b(?:zip\s*(?:code)?|postal code|codigo postal)\s*(?:(?:is|es)\s*)?(\d{5})(?:\s+\d{4})?\b/g,
+    ),
+  ].map((match) => match[1]);
+  const bare = awaitingPostalCity
+    ? /^(\d{5})(?:\s+\d{4})?(?:\s+(?:ca|california))?$/.exec(text)?.[1]
+    : undefined;
+  const postalField = [
+    'mailingCity',
+    'mailingState',
+    'mailingZip',
+    'mailingStreet',
+    'contactDetails',
+  ].includes(context.fieldId || '');
+  const cityRequest = /\b(?:city|town|mailing|address|ciudad|direccion)\b/.test(text);
+  const wantsLookup =
+    !/\b(?:mean|meaning|definition|significa|significado)\b/.test(text) &&
+    (awaitingPostalCity || cityRequest || postalField);
+  if (wantsLookup && (labelled.length || bare)) {
+    const codes = [...new Set([...labelled, ...(bare ? [bare] : [])])];
+    if (codes.length !== 1 || /\b(?:or|o)\s+\d{5}\b/.test(text))
+      return local(
+        t(
+          'Which single ZIP code should I check? Confirm it on your mailing address before continuing.',
+          '¿Qué código postal debo consultar? Confirma un solo código de tu dirección postal antes de continuar.',
+        ),
+        true,
+      );
+    return { kind: 'postal-lookup', zip: codes[0] };
+  }
   // A street name can recur in multiple places. This is a missing-facts
   // question, not a request to explain the address label or guess a location.
   const asksDefinition =
     /\b(?:mean|means|meaning|definition|significa|significado|definicion)\b/.test(text);
   if (
     !asksDefinition &&
-    /\b(?:what|which)\b.*\b(?:city|town|zip(?: code)?|state)\b|\b(?:my city|city for|zip for|what city|which city)\b|\b(?:que|cual)\b.*\b(?:ciudad|codigo postal|estado)\b|\bmi ciudad\b/.test(
+    /\b(?:what|which)\b.*\b(?:city|town|zip(?: code)?|state)\b|\b(?:my (?:mailing )?city|city for|zip for|what city|which city)\b|\b(?:que|cual)\b.*\b(?:ciudad|codigo postal|estado)\b|\bmi ciudad\b/.test(
       text,
     )
   ) {

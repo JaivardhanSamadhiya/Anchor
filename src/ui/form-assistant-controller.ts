@@ -1,5 +1,6 @@
-/** Contextual form help sends reviewed public question identifiers only. A
- * selection, typed question and draft answer never cross the cloud boundary. */
+/** AI form help sends reviewed public question identifiers only. A separate
+ * postal lookup sends only a supplied ZIP. Selection text, typed questions and
+ * draft answers are never sent to either provider. */
 import type { FormAssistance } from '../domain/form-assistance.js';
 import {
   createFormContextRequest,
@@ -12,6 +13,7 @@ import {
 } from '../domain/program-assistant.js';
 import { renderFormAssistantPanel } from './form-assistance-view.js';
 import { resolveFormQuestion } from '../domain/form-question.js';
+import { lookupPostalPlaces } from '../infrastructure/postal-lookup.js';
 
 interface CurrentForm {
   assistance: FormAssistance;
@@ -43,6 +45,7 @@ export function createFormAssistant(options: FormAssistantOptions) {
   let question = '';
   let adultConfirmed = false;
   let waiting = false;
+  let awaitingPostalCity = false;
   let generation = 0;
   let controller: AbortController | undefined;
   let selectionContext: FormContext | null = null;
@@ -87,6 +90,7 @@ export function createFormAssistant(options: FormAssistantOptions) {
     question = '';
     adultConfirmed = false;
     waiting = false;
+    awaitingPostalCity = false;
     messages.length = 0;
     // A still-mounted panel may be captured by the next modal render. Clear it
     // too, so unfinished questions cannot cross notice or account boundaries.
@@ -133,6 +137,7 @@ export function createFormAssistant(options: FormAssistantOptions) {
   function choose(sectionId: string, fieldId?: string) {
     capture();
     selected = contextFor(sectionId, fieldId);
+    awaitingPostalCity = false;
     if (!selected) return false;
     if (!question.trim()) question = t('Explain this question.', 'Explica esta pregunta.');
     options.redraw();
@@ -207,12 +212,99 @@ export function createFormAssistant(options: FormAssistantOptions) {
     capture(form);
     const context = currentContext();
     if (!context || !question.trim()) return;
-    const resolved = resolveFormQuestion(question, context, language());
+    const resolved = resolveFormQuestion(question, context, language(), awaitingPostalCity);
     const item: Message = { question };
     messages.push(item);
     if (messages.length > 6) messages.shift();
     question = '';
+    if (resolved.kind === 'postal-lookup') {
+      awaitingPostalCity = true;
+      const epoch = generation;
+      const verificationLinks = [
+        {
+          title: t('USPS: confirm the complete address', 'USPS: confirmar dirección completa'),
+          url: 'https://tools.usps.com/go/ZipLookup.htm',
+        },
+      ];
+      if (!navigator.onLine) {
+        Object.assign(item, {
+          mode: 'device',
+          citations: verificationLinks,
+          answer: t(
+            'ZIP lookup needs an internet connection. Reconnect and send the ZIP again, or check a recent piece of mail. I have not verified a city.',
+            'La consulta postal necesita conexión. Conéctate y envía el código otra vez o revisa correo reciente. No he verificado una ciudad.',
+          ),
+        });
+        options.redraw();
+        return;
+      }
+      waiting = true;
+      controller = new AbortController();
+      options.redraw();
+      try {
+        const result = await lookupPostalPlaces(resolved.zip, controller.signal);
+        if (epoch !== generation) return;
+        const places = result.places.map(
+          (place) => `${place.city}, ${place.state} (${place.stateCode})`,
+        );
+        Object.assign(item, {
+          mode: 'postal',
+          answer:
+            result.places.length === 1
+              ? t(
+                  `ZIP ${result.zip} is listed for ${places[0]}. If this is the correct ZIP for your mailing address, ${result.places[0].city} is the city associated with that ZIP. This ZIP-only lookup does not verify your street address; check USPS if the full address is uncertain.`,
+                  `El código ${result.zip} corresponde a ${places[0]}. Si es el código correcto de tu dirección postal, ${result.places[0].city} es la ciudad asociada. Esta consulta solo del código no verifica tu calle; consulta USPS si hay dudas sobre la dirección completa.`,
+                )
+              : t(
+                  `ZIP ${result.zip} lists multiple places: ${places.join('; ')}. I have not chosen a mailing city. Compare your complete mailing address with USPS to confirm the name to use.`,
+                  `El código ${result.zip} incluye varios lugares: ${places.join('; ')}. No he elegido una ciudad postal. Compara tu dirección completa con USPS para confirmar el nombre que debes usar.`,
+                ),
+          citations: [
+            {
+              title: t(
+                'Zippopotam.us / GeoNames: ZIP lookup',
+                'Zippopotam.us / GeoNames: consulta postal',
+              ),
+              url: result.sourceUrl,
+            },
+            {
+              title: t('USPS: confirm the complete address', 'USPS: confirmar dirección completa'),
+              url: 'https://tools.usps.com/go/ZipLookup.htm',
+            },
+          ],
+          message: t(
+            'Only the five-digit ZIP was sent to the lookup service. Your street address and conversation were not sent.',
+            'Solo se envió el código de cinco dígitos al servicio postal. No se enviaron tu calle ni conversación.',
+          ),
+        });
+        awaitingPostalCity = false;
+      } catch (error) {
+        if (epoch !== generation) return;
+        Object.assign(item, {
+          mode: 'device',
+          citations: verificationLinks,
+          answer:
+            error && typeof error === 'object' && 'code' in error && error.code === 'not-found'
+              ? t(
+                  'The lookup found no entry for that ZIP code. Check the five digits against your mailing address or use USPS. I have not verified a city.',
+                  'No se encontró ese código postal. Verifica los cinco dígitos de tu dirección o usa USPS. No he verificado una ciudad.',
+                )
+              : t(
+                  'The ZIP lookup is unavailable right now. I have not verified a city. Try again when connected or use USPS; this was not sent to Anchor AI.',
+                  'La consulta postal no está disponible ahora. No he verificado una ciudad. Inténtalo con conexión o usa USPS; no se envió a la IA de Anchor.',
+                ),
+        });
+      } finally {
+        if (epoch === generation) {
+          capture();
+          waiting = false;
+          options.redraw();
+        }
+      }
+      return;
+    }
     if (resolved.kind === 'local') {
+      awaitingPostalCity = Boolean(resolved.awaitingPostalCity);
       Object.assign(item, {
         answer: resolved.answer,
         mode: 'device',
@@ -221,6 +313,7 @@ export function createFormAssistant(options: FormAssistantOptions) {
       options.redraw();
       return;
     }
+    awaitingPostalCity = false;
     selected = resolved.context;
     const request = createFormContextRequest(resolved.context, language(), true);
     if (!request) return;
