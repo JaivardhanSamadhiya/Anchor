@@ -4,6 +4,8 @@ Anchor helps people keep benefit paperwork from becoming a gap in support. It re
 
 [Open Anchor](https://jaivardhansamadhiya.github.io/Anchor/) · [Architecture](docs/ARCHITECTURE.md) · [Local document model](docs/DOCUMENT_INTELLIGENCE.md) · [Knowledge library](docs/KNOWLEDGE_LIBRARY.md) · [Appointment packets](docs/APPOINTMENT_PACKET.md) · [Demo kit](docs/COMPETITION_DEMO.md)
 
+[Neighborhood Hacks submission draft and recording plan](docs/NEIGHBORHOOD_HACKS_SUBMISSION.md)
+
 ## What it does
 
 - Reads supported English and Spanish CalFresh renewal/verification notices from text, PDF, or photos with local PDF/OCR engines. Unclear dates and unsupported forms require human review. Original wording stays in its source language.
