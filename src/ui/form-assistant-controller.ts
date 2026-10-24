@@ -139,7 +139,6 @@ export function createFormAssistant(options: FormAssistantOptions) {
     selected = contextFor(sectionId, fieldId);
     awaitingPostalCity = false;
     if (!selected) return false;
-    if (!question.trim()) question = t('Explain this question.', 'Explica esta pregunta.');
     options.redraw();
     document.querySelector<HTMLTextAreaElement>('#form-assistant-question')?.focus();
     return true;
