@@ -40,6 +40,8 @@ I modeled preparation tasks as a dependency graph and used BM25 search over revi
 
 I used automated browser and domain tests, reproducible model evaluation, and GitHub Actions to check releases. Each component has a specific responsibility, with source documents and user confirmation kept visible throughout the workflow.
 
+I used AI-assisted coding during development.
+
 ### Challenges I ran into
 
 I found that reading a document and understanding what action it requires are different problems. A notice can contain several dates, while a supporting document can be readable but cover the wrong month. I preserved original evidence, distinguished date purposes, and required confirmation before treating inferred details as reviewed facts.
